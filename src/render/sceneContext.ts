@@ -48,7 +48,11 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
   controls.target.set(centerX, 0, centerZ);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.enablePan = false;
+  // Bird's-eye navigation: left-drag rotates, right-drag (or two fingers) moves
+  // over the map, keeping the camera height; scroll zooms towards the cursor.
+  controls.enablePan = true;
+  controls.screenSpacePanning = false;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.zoomToCursor = true;
   controls.minDistance = 25;
   controls.maxDistance = span * 2.2;
@@ -92,6 +96,8 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
   };
   updateSun();
 
+  const keyboardPan = createKeyboardPan(camera, controls, bounds);
+
   let insets = { right: 0, bottom: 0 };
   const onResize = () => {
     const w = container.clientWidth;
@@ -116,11 +122,74 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
       const clock = new THREE.Clock();
       renderer.setAnimationLoop(() => {
         const dt = Math.min(clock.getDelta(), 0.1);
+        keyboardPan.update(dt);
         onFrame?.(dt);
         controls.update();
         updateSun();
         renderer.render(scene, camera);
       });
+    },
+  };
+}
+
+const PAN_KEYS: Record<string, [number, number]> = {
+  arrowup: [0, 1],
+  w: [0, 1],
+  arrowdown: [0, -1],
+  s: [0, -1],
+  arrowleft: [-1, 0],
+  a: [-1, 0],
+  arrowright: [1, 0],
+  d: [1, 0],
+};
+
+/**
+ * Arrow keys / WASD move the view over the map relative to where the camera
+ * looks; speed grows with zoom-out, Shift doubles it.
+ */
+function createKeyboardPan(camera: THREE.PerspectiveCamera, controls: OrbitControls, bounds: Bounds) {
+  const held = new Set<string>();
+  let fast = false;
+  const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+  window.addEventListener('keydown', (e) => {
+    fast = e.shiftKey;
+    const key = e.key.toLowerCase();
+    if (!(key in PAN_KEYS) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+    held.add(key);
+    e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => {
+    fast = e.shiftKey;
+    held.delete(e.key.toLowerCase());
+  });
+  window.addEventListener('blur', () => held.clear());
+
+  const forward = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const move = new THREE.Vector3();
+  return {
+    update(dt: number): void {
+      if (held.size === 0) return;
+      let x = 0;
+      let y = 0;
+      for (const key of held) {
+        x += PAN_KEYS[key][0];
+        y += PAN_KEYS[key][1];
+      }
+      if (x === 0 && y === 0) return;
+      // Ground-plane directions from the camera's heading.
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      right.crossVectors(forward, camera.up).normalize();
+      const speed = camera.position.distanceTo(controls.target) * 0.9 * (fast ? 2 : 1);
+      move.copy(forward).multiplyScalar(y).addScaledVector(right, x).normalize().multiplyScalar(speed * dt);
+      // Stay over the map.
+      const t = controls.target;
+      move.x = THREE.MathUtils.clamp(t.x + move.x, bounds.minX, bounds.maxX) - t.x;
+      move.z = THREE.MathUtils.clamp(t.z + move.z, bounds.minZ, bounds.maxZ) - t.z;
+      t.add(move);
+      camera.position.add(move);
     },
   };
 }

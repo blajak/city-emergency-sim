@@ -45,6 +45,7 @@ pass, and it works the scene before heading back.
 | Action | Input |
 | --- | --- |
 | Rotate camera | Drag |
+| Move over the map | Right-drag, two-finger drag, or arrow keys / <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (<kbd>Shift</kbd> = faster) |
 | Zoom | Scroll (zooms towards the cursor) |
 | Report a fire / crime | **Fire** / **Crime** button, or <kbd>F</kbd> / <kbd>C</kbd>, then click a building |
 | Cancel reporting | <kbd>Esc</kbd> |
