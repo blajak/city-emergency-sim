@@ -2,26 +2,20 @@ import * as THREE from 'three';
 import { createRng, type Rng } from '../sim/math/rng';
 import { BAY_WIDTH, FLOOR_HEIGHT } from '../sim/world/constants';
 import type { Building } from '../sim/world/types';
+import { addOtherBuilding, SIGN_STYLES } from './buildingKinds';
+import { type Builders, ROOF_GREY, ROOF_TILES, addCornice, addRoofClutter, color, frameOf, shade } from './buildingParts';
 import { Frame, GeometryBuilder, addBox, addGableRoof } from './geometryBuilder';
-import { createShopTexture, createSignTexture, createWindowTexture } from './textures';
+import { createShopTexture, createSignAtlas, createSignTexture, createWindowTexture } from './textures';
 
-const ROOF_GREY = 0x8a8f96;
-const ROOF_TILES = [0xa4553f, 0x8e4a3a, 0x6d6f73, 0xb2654a];
-
-interface Builders {
-  facade: GeometryBuilder;
-  shop: GeometryBuilder;
-  solid: GeometryBuilder;
-}
-
-const color = (hex: number) => new THREE.Color(hex);
-const shade = (hex: number, factor: number) => new THREE.Color(hex).multiplyScalar(factor);
 
 export function createBuildingsView(buildings: readonly Building[]): THREE.Group {
+  const atlas = createSignAtlas(SIGN_STYLES);
   const builders: Builders = {
     facade: new GeometryBuilder(),
     shop: new GeometryBuilder(),
     solid: new GeometryBuilder(),
+    signs: new GeometryBuilder(),
+    atlas,
   };
   const group = new THREE.Group();
   group.name = 'buildings';
@@ -41,6 +35,8 @@ export function createBuildingsView(buildings: readonly Building[]): THREE.Group
       case 'police_station':
         addPoliceStation(builders, building, group);
         break;
+      default:
+        addOtherBuilding(builders, building, rng);
     }
   }
 
@@ -66,6 +62,8 @@ export function createBuildingsView(buildings: readonly Building[]): THREE.Group
     mesh.receiveShadow = true;
     group.add(mesh);
   }
+  const signs = new THREE.Mesh(builders.signs.build(), new THREE.MeshBasicMaterial({ map: atlas.texture, vertexColors: true }));
+  group.add(signs);
   return group;
 }
 
@@ -77,10 +75,6 @@ export function gableRise(b: Building): number {
 /** Highest point of the building, roof included. */
 export function roofTop(b: Building): number {
   return b.height + (b.roof === 'gable' ? gableRise(b) : 0.5);
-}
-
-function frameOf(b: Building): Frame {
-  return new Frame(b.footprint.center.x, b.footprint.center.z, b.footprint.rotation);
 }
 
 function addResidential(builders: Builders, b: Building, rng: Rng): void {
@@ -150,49 +144,6 @@ function addOffice(builders: Builders, b: Building, rng: Rng): void {
     color: color(0xb4b8bc),
   });
   addRoofClutter(builders.solid, frame, b, rng);
-}
-
-function addCornice(solid: GeometryBuilder, frame: Frame, b: Building, trim: THREE.Color): void {
-  addBox(solid, {
-    frame,
-    halfW: b.footprint.halfW + 0.25,
-    halfD: b.footprint.halfD + 0.25,
-    y0: b.height - 0.1,
-    y1: b.height + 0.45,
-    color: trim,
-    topColor: color(ROOF_GREY),
-  });
-}
-
-/** AC units and roof-access huts on flat roofs. */
-function addRoofClutter(solid: GeometryBuilder, frame: Frame, b: Building, rng: Rng): void {
-  const { halfW, halfD } = b.footprint;
-  const y0 = b.height + 0.45;
-  const units = rng.int(0, 2);
-  for (let i = 0; i < units; i++) {
-    addBox(solid, {
-      frame,
-      ox: rng.range(-halfW + 1.5, halfW - 1.5),
-      oz: rng.range(-halfD + 1.5, halfD - 1.5),
-      halfW: 0.8,
-      halfD: 0.55,
-      y0,
-      y1: y0 + 1,
-      color: color(0xd5d8db),
-    });
-  }
-  if (rng.chance(0.5)) {
-    addBox(solid, {
-      frame,
-      ox: rng.range(-halfW + 2, halfW - 2),
-      oz: -halfD + 2,
-      halfW: 1.3,
-      halfD: 1.3,
-      y0,
-      y1: y0 + 2.3,
-      color: color(0xa9a39a),
-    });
-  }
 }
 
 function addSign(

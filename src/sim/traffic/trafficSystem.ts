@@ -38,6 +38,12 @@ const ARRIVAL_TOLERANCE = 1.5;
 const YIELD_AHEAD = 60;
 /** How far right a yielding civilian moves from the lane centre, m. */
 const PULL_OVER_LATERAL = 1.4;
+/** Units overtaking in opposite directions keep at least this far apart, m. */
+const ONCOMING_RANGE = 30;
+/** Last part of a lane where vehicles queue for the junction and are never passed. */
+const STOP_ZONE = 10;
+/** Speed of a vehicle pulled over for a responding unit, m/s. */
+const YIELD_CRAWL_SPEED = 1.5;
 /** Widest civilian vehicle, used to size the overtaking offset. */
 const MAX_CIVILIAN_WIDTH = 2.0;
 /** Responding vehicles reserve junctions from this far away (pre-emption). */
@@ -76,6 +82,8 @@ export class TrafficSystem {
   /** Connector id → vehicles holding a reservation for it. */
   private readonly reservations = new Map<SegmentId, Set<Vehicle>>();
   private readonly incomingConnectors = new Map<SegmentId, SegmentId[]>();
+  /** Lane in the other direction of the same street. */
+  private readonly oppositeLane = new Map<SegmentId, SegmentId>();
   /** Vehicles taking part in traffic, per segment (rebuilt every step). */
   private bySegment = new Map<SegmentId, Vehicle[]>();
   /** Every vehicle including parked ones, per segment (rebuilt every step). */
@@ -90,6 +98,14 @@ export class TrafficSystem {
     private readonly signals: SignalLookup = NO_SIGNALS,
   ) {
     this.router = new Router(graph);
+    const byEdge = new Map<number, Lane[]>();
+    for (const lane of graph.lanes) byEdge.set(lane.edgeId, [...(byEdge.get(lane.edgeId) ?? []), lane]);
+    for (const [, pair] of byEdge) {
+      if (pair.length === 2) {
+        this.oppositeLane.set(pair[0].id, pair[1].id);
+        this.oppositeLane.set(pair[1].id, pair[0].id);
+      }
+    }
     for (const c of graph.connectors) {
       const list = this.incomingConnectors.get(c.toLane) ?? [];
       list.push(c.id);
@@ -315,8 +331,9 @@ export class TrafficSystem {
 
     const responding = isResponding(vehicle);
     if (vehicle.yieldingTo !== null && vehicle.yieldMode === 'stop' && current.kind === 'lane') {
-      // Pulling over for a responding vehicle: come to a smooth stop.
-      obstacle(Math.max(4, (vehicle.v * vehicle.v) / (2 * 2.5)), 0);
+      // Pulling over for a responding vehicle: slow to a crawl. Not a full stop, so a
+      // queue of yielding and non-yielding vehicles can never lock each other.
+      obstacle(4 + vehicle.v * p.timeHeadway, YIELD_CRAWL_SPEED);
     }
 
     const path = [vehicle.segment, ...vehicle.plan];
@@ -345,7 +362,7 @@ export class TrafficSystem {
       if (next.kind === 'connector') {
         // Only the first car in line, approaching its own stop line, decides.
         // Yielding civilians wait for the responding vehicle before entering a junction.
-        const decides = i === 0 && seg.kind === 'lane' && !(vehicle.yieldingTo !== null && vehicle.yieldMode === 'stop');
+        const decides = i === 0 && seg.kind === 'lane';
         const lightAllows = decides && (responding || this.lightAllowsEntry(vehicle, seg, offset));
         if (decides && !lightAllows) this.cancelReservation(vehicle);
         const reserved =
@@ -386,12 +403,15 @@ export class TrafficSystem {
       seg.kind === 'connector' ? (this.segment(seg.fromLane) as Lane).outConnectors : [segmentId];
     let best: Vehicle | null = null;
     for (const id of candidates) {
-      for (const other of this.bySegment.get(id) ?? []) {
+      // Parked vehicles count too: anyone not far enough to the side must not drive into them.
+      for (const other of this.allBySegment.get(id) ?? []) {
         if (other === self) continue;
+        if (!self && other.maneuver !== 'driving' && other.maneuver !== 'arriving' && other.maneuver !== 'merging') continue;
         if (self && (other.s < self.s || (other.s === self.s && other.id < self.id))) continue;
-        if (self && this.sideBySide(self, other)) continue;
-        // Holding the curb next to a stopped service vehicle: drive past it.
-        if (self && self.yieldMode === 'hold' && self.yieldingTo === other.id) continue;
+        // Passing side by side only works within a lane, and not next to someone at
+        // the stop line: both would enter the junction together, where paths cross.
+        const queuingAtLine = other.maneuver === 'driving' && seg.length - other.s < STOP_ZONE;
+        if (self && seg.kind === 'lane' && !queuingAtLine && this.sideBySide(self, other)) continue;
         if (!best || other.s < best.s) best = other;
       }
     }
@@ -491,7 +511,7 @@ export class TrafficSystem {
           const next = i + 1 < path.length ? this.segment(path[i + 1]) : null;
           const turnsRightHere = next?.kind === 'connector' && next.turn === 'right';
           for (const c of this.bySegment.get(seg.id) ?? []) {
-            if (c.role !== 'civilian' || c.yieldingTo !== null) continue;
+            if (!this.canYield(c) || c.yieldingTo !== null) continue;
             // No room at the curb (parked vehicle beside it): just keep driving.
             if (!this.roomToPullOver(c)) continue;
             if (turnsRightHere && seg.length - c.s < STOP_LINE_PULL_OVER_LIMIT) continue;
@@ -504,7 +524,7 @@ export class TrafficSystem {
       }
       // Anyone right beside it keeps yielding too (e.g. e just entered a junction).
       for (const c of this.vehicles) {
-        if (c.role === 'civilian' && c.yieldingTo === null && this.alongside(e, c) && c.lateral > 0.5) {
+        if (this.canYield(c) && c.yieldingTo === null && this.alongside(e, c) && c.lateral > 0.5) {
           c.yieldingTo = e.id;
         }
       }
@@ -513,12 +533,20 @@ export class TrafficSystem {
     for (const e of this.vehicles) {
       if (!e.sirens || e.maneuver !== 'arriving') continue;
       for (const c of this.vehicles) {
-        if (c.role === 'civilian' && c.yieldingTo === null && c.lateral > 0.5 && this.alongside(e, c)) {
+        if (this.canYield(c) && c.yieldingTo === null && c.lateral > 0.5 && this.alongside(e, c)) {
           c.yieldingTo = e.id;
           c.yieldMode = 'hold';
         }
       }
     }
+  }
+
+  /**
+   * Everyone driving without sirens pulls over, except vehicles too wide to
+   * be passed in the lane (fire engines on their way back), which just drive on.
+   */
+  private canYield(v: Vehicle): boolean {
+    return !v.sirens && v.maneuver === 'driving' && v.width <= MAX_CIVILIAN_WIDTH;
   }
 
   private alongside(a: Vehicle, b: Vehicle): boolean {
@@ -536,10 +564,33 @@ export class TrafficSystem {
           ((c.segment === vehicle.segment && c.s > vehicle.s - vehicle.length - c.length - 3 && c.s < vehicle.s + 35) ||
             this.alongside(vehicle, c)),
       );
-      // Move left just enough to pass the widest car pulled over to the right.
-      if (passing) return PULL_OVER_LATERAL - (MAX_CIVILIAN_WIDTH / 2 + vehicle.width / 2 + PASSING_CLEARANCE + 0.05);
+      // Move left just enough to pass the widest car pulled over to the right — but
+      // never start while a unit coming the other way is overtaking (both would
+      // cross the centre line). Once moved over, finish the manoeuvre.
+      const alreadyOver = vehicle.lateral < -0.3;
+      if (passing && (alreadyOver || !this.oncomingOvertaker(vehicle))) {
+        return PULL_OVER_LATERAL - (MAX_CIVILIAN_WIDTH / 2 + vehicle.width / 2 + PASSING_CLEARANCE + 0.05);
+      }
     }
     return 0;
+  }
+
+  /**
+   * A responding unit on the opposite lane, close by, that is overtaking or
+   * about to (ties broken by id, so two units never start together).
+   */
+  private oncomingOvertaker(vehicle: Vehicle): boolean {
+    const lane = this.segment(vehicle.segment);
+    if (lane.kind !== 'lane') return false;
+    const opposite = this.oppositeLane.get(lane.id);
+    if (opposite === undefined) return false;
+    const oppositeLength = this.segment(opposite).length;
+    return (this.bySegment.get(opposite) ?? []).some(
+      (o) =>
+        isResponding(o) &&
+        (o.lateral < -0.05 || o.id < vehicle.id) &&
+        Math.abs(oppositeLength - o.s - vehicle.s) < ONCOMING_RANGE + (o.length + vehicle.length) / 2,
+    );
   }
 
   /** No parked vehicle at the curb right next to us. */

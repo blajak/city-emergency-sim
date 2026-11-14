@@ -10,7 +10,7 @@ export function createCityView(city: City): THREE.Group {
   group.name = 'city';
   group.add(
     createGroundView(city.bounds),
-    createRoadsView(city.roads, city.parks),
+    createRoadsView(city),
     createBuildingsView(city.buildings),
     createTreesView(city.trees),
     createLampsView(city.lamps),

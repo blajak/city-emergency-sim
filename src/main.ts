@@ -1,6 +1,7 @@
 import './style.css';
 import { createCityView } from './render/cityView';
 import { IncidentsView } from './render/incidentsView';
+import { DistrictLabelsView } from './render/labelsView';
 import { createSceneContext } from './render/sceneContext';
 import { SignalsView } from './render/signalsView';
 import { VehiclesView } from './render/vehiclesView';
@@ -23,7 +24,8 @@ function requireElement(id: string): HTMLElement {
 
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || DEFAULT_SEED;
-const scale = Math.min(10, Math.max(1, Number(params.get('scale')) || 1));
+const DEFAULT_SCALE = 10;
+const scale = Math.min(10, Math.max(1, Number(params.get('scale')) || DEFAULT_SCALE));
 const city = generateCity(seed, { scale });
 const sim = new Simulation(city, { civilianCount: Number(params.get('cars')) || Math.round(20 * scale) });
 
@@ -31,6 +33,7 @@ const ctx = createSceneContext(requireElement('app'), city.bounds);
 const vehiclesView = new VehiclesView();
 const signalsView = new SignalsView(sim.signals, sim.traffic.graph);
 const incidentsView = new IncidentsView(city);
+const labelsView = new DistrictLabelsView(city.districts);
 
 const hud = requireElement('hud');
 const toast = new Toast(hud);
@@ -64,7 +67,7 @@ function updateViewInsets(): void {
 updateViewInsets();
 window.addEventListener('resize', updateViewInsets);
 
-ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incidentsView.group, interaction.highlight.object);
+ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, interaction.highlight.object);
 
 const debug = params.has('debug') ? new DebugOverlay(hud, sim, ctx.renderer) : null;
 
@@ -74,6 +77,7 @@ ctx.start((dt) => {
   vehiclesView.update(sim.traffic.vehicles, alpha, sim.time);
   signalsView.update();
   incidentsView.update(sim.dispatcher, sim.time);
+  labelsView.update(ctx.camera, ctx.controls.target);
   panel.render();
   stationCard.render();
 });

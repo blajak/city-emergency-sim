@@ -59,11 +59,37 @@ export interface StationSite {
   side: Side;
 }
 
+/** A grid cell between four intersections. */
+export interface Block {
+  r: number;
+  c: number;
+  /** Corners in order NW, NE, SE, SW. */
+  corners: [Vec2, Vec2, Vec2, Vec2];
+  /** Bordering streets: undefined when the segment was removed. */
+  sides: { north?: EdgeId; south?: EdgeId; west?: EdgeId; east?: EdgeId };
+  /** All four sides exist and are straight: the block can host a large site. */
+  regular: boolean;
+  /** The railway runs through this block. */
+  rail: boolean;
+  park: boolean;
+}
+
 export interface CityLayout {
   network: RoadNetwork;
   parks: Park[];
   stationSites: { fire: StationSite; police: StationSite };
+  blocks: Block[];
+  /** Centre line of the railway corridor, west to east through the middle row of blocks. */
+  railCorridor: Vec2[];
 }
+
+/** Row of blocks the railway runs through (between grid rows `r` and `r + 1`). */
+export function railRow(rows: number): number {
+  return Math.floor((rows - 1) / 2);
+}
+
+/** Extends the railway this far beyond the outermost streets (into the map margin). */
+const RAIL_OVERHANG = 48;
 
 /** Grid size for a scale factor: road count grows roughly linearly with `scale`. */
 export function gridSize(scale: number): { cols: number; rows: number } {
@@ -74,13 +100,13 @@ export function gridSize(scale: number): { cols: number; rows: number } {
   };
 }
 
-export function generateRoadLayout(rng: Rng, scale = 1): CityLayout {
-  const { cols: COLS, rows: ROWS } = gridSize(scale);
+export function generateRoadLayout(rng: Rng, sizeScale = 1): CityLayout {
+  const { cols: COLS, rows: ROWS } = gridSize(sizeScale);
   const nodes: RoadNode[] = [];
   const edges: RoadEdge[] = [];
   const edgeByKey = new Map<string, EdgeId>();
   const nodeAt = (r: number, c: number) => nodes[r * COLS + c];
-  const extras = COLS > BASE_COLS || ROWS > BASE_ROWS ? randomExtras(rng, COLS, ROWS, scale) : null;
+  const extras = COLS > BASE_COLS || ROWS > BASE_ROWS ? randomExtras(rng, COLS, ROWS, sizeScale, railRow(ROWS)) : null;
   const removed = new Set([...REMOVED_EDGES, ...(extras?.removed ?? [])]);
   const curved: Record<string, number> = { ...CURVED_EDGES, ...(extras?.curved ?? {}) };
 
@@ -127,10 +153,49 @@ export function generateRoadLayout(rng: Rng, scale = 1): CityLayout {
     return { edgeId, side };
   };
 
+  // Blocks.
+  const parkCells = new Set([
+    ...[[1, 1], [2, 1]].map(([r, c]) => `${r}:${c}`), // the v1 park spans two cells
+    ...(extras?.parks ?? []).map(([r, c]) => `${r}:${c}`),
+  ]);
+  const rr = railRow(ROWS);
+  const blocks: Block[] = [];
+  for (let r = 0; r < ROWS - 1; r++) {
+    for (let c = 0; c < COLS - 1; c++) {
+      const sides = {
+        north: edgeByKey.get(`h:${r}:${c}`),
+        south: edgeByKey.get(`h:${r + 1}:${c}`),
+        west: edgeByKey.get(`v:${r}:${c}`),
+        east: edgeByKey.get(`v:${r}:${c + 1}`),
+      };
+      const keys = [`h:${r}:${c}`, `h:${r + 1}:${c}`, `v:${r}:${c}`, `v:${r}:${c + 1}`];
+      const diagonal = r === DIAGONAL.from[0] && c === DIAGONAL.from[1];
+      blocks.push({
+        r,
+        c,
+        corners: [nodeAt(r, c).pos, nodeAt(r, c + 1).pos, nodeAt(r + 1, c + 1).pos, nodeAt(r + 1, c).pos],
+        sides,
+        regular: !diagonal && keys.every((k) => edgeByKey.has(k) && !(k in curved)),
+        rail: r === rr,
+        park: parkCells.has(`${r}:${c}`),
+      });
+    }
+  }
+
+  // Railway: through the middle of the block row `rr`, crossing each north–south street once.
+  const railCorridor: Vec2[] = [];
+  for (let c = 0; c < COLS; c++) railCorridor.push(lerp(nodeAt(rr, c).pos, nodeAt(rr + 1, c).pos, 0.5));
+  const first = railCorridor[0];
+  const last = railCorridor[railCorridor.length - 1];
+  railCorridor.unshift(add(first, scale(normalize(sub(first, railCorridor[1])), RAIL_OVERHANG)));
+  railCorridor.push(add(last, scale(normalize(sub(last, railCorridor[railCorridor.length - 2])), RAIL_OVERHANG)));
+
   return {
     network: { nodes, edges },
     parks: [park(PARK_CORNERS), ...extraParks],
     stationSites: { fire: site(FIRE_STATION_SITE), police: site(POLICE_STATION_SITE) },
+    blocks,
+    railCorridor,
   };
 }
 
@@ -139,7 +204,7 @@ export function generateRoadLayout(rng: Rng, scale = 1): CityLayout {
  * original streets keep their shape: some curved streets, a few removed
  * segments (never two at one intersection) and extra one-block parks.
  */
-function randomExtras(rng: Rng, cols: number, rows: number, scale: number) {
+function randomExtras(rng: Rng, cols: number, rows: number, scale: number, railRowIndex: number) {
   const outside = (r: number, c: number) => r >= BASE_ROWS || c >= BASE_COLS;
   const interior = (r: number, c: number) => r > 0 && c > 0 && r < rows - 1 && c < cols - 1;
   const removed: string[] = [];
@@ -171,7 +236,8 @@ function randomExtras(rng: Rng, cols: number, rows: number, scale: number) {
   for (let attempt = 0; attempt < 200 && parks.length < wanted; attempt++) {
     const r = rng.int(0, rows - 2);
     const c = rng.int(0, cols - 2);
-    if (!outside(r, c) || parks.some(([pr, pc]) => Math.abs(pr - r) < 3 && Math.abs(pc - c) < 3)) continue;
+    if (!outside(r, c) || r === railRowIndex) continue;
+    if (parks.some(([pr, pc]) => Math.abs(pr - r) < 3 && Math.abs(pc - c) < 3)) continue;
     const sides = [`h:${r}:${c}`, `h:${r + 1}:${c}`, `v:${r}:${c}`, `v:${r}:${c + 1}`];
     if (sides.some((k) => removed.includes(k) || k in curved)) continue;
     parks.push([r, c]);

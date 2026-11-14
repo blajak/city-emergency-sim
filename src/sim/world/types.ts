@@ -46,14 +46,66 @@ export interface StreetAddress {
   side: Side;
 }
 
-export type BuildingKind = 'residential' | 'office' | 'fire_station' | 'police_station';
+export type BuildingKind =
+  // homes
+  | 'residential' // tenement house, mostly in the old town
+  | 'apartment'
+  | 'house'
+  // work, shopping and services
+  | 'office'
+  | 'shop'
+  | 'petrol_station'
+  | 'supermarket'
+  | 'mall'
+  | 'town_hall'
+  | 'school'
+  | 'hospital'
+  | 'sports_hall'
+  | 'pool'
+  | 'stadium'
+  // industry and utilities
+  | 'factory'
+  | 'warehouse'
+  | 'container_yard'
+  | 'waste_depot'
+  | 'power_plant'
+  // emergency services
+  | 'fire_station'
+  | 'police_station';
+
+export type DistrictId = number;
+export type DistrictKind = 'old_town' | 'commercial' | 'residential' | 'industrial';
+
+export interface District {
+  id: DistrictId;
+  name: string;
+  kind: DistrictKind;
+  /** Seed point; every location belongs to the district with the nearest centre. */
+  center: Vec2;
+}
+
+/** Lay-by cut into the sidewalk where delivery vehicles stop off the road. */
+export interface DeliveryBay {
+  edgeId: EdgeId;
+  side: Side;
+  /** Centre of the bay along the edge centre line. */
+  s: number;
+  length: number;
+}
 export type RoofKind = 'flat' | 'gable';
 
 export interface Building {
   id: BuildingId;
   kind: BuildingKind;
-  /** Local +z of the footprint faces the street. */
+  district: DistrictId;
+  /** Main structure. Local +z faces the street. */
   footprint: OBB;
+  /** Whole site for buildings that fill a block (car park, pitch, yard). Same orientation. */
+  plot: OBB | null;
+  /** 0..1, picks model variations. */
+  variant: number;
+  /** Delivery lay-by in front of the building, if it has one. */
+  bay: DeliveryBay | null;
   groundFloorHeight: number;
   upperFloors: number;
   /** Height of the wall top (roof excluded). */
@@ -94,6 +146,9 @@ export interface City {
   scale: number;
   bounds: Bounds;
   roads: RoadNetwork;
+  districts: District[];
+  /** Centre line of the strip kept free for the railway. */
+  railCorridor: Vec2[];
   buildings: Building[];
   parks: Park[];
   trees: TreeSpot[];

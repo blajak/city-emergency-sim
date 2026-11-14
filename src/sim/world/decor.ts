@@ -1,5 +1,6 @@
 import { distance, rightOf, scale, add, vec2 } from '../math/vec2';
-import { pointInObb, pointInPolygon, samplePolyline } from '../math/geometry';
+import { distanceToPolyline, pointInObb, pointInPolygon, samplePolyline } from '../math/geometry';
+import type { Vec2 } from '../math/vec2';
 import type { Rng } from '../math/rng';
 import { SpatialGrid, around, obbBox } from '../math/spatialGrid';
 import { RoadIndex } from './roadIndex';
@@ -9,15 +10,19 @@ import type { Bounds, Building, LampSpot, Park, RoadNetwork, TreeSpot } from './
 const TREE_GRID = 6;
 const LAMP_SPACING = 28;
 
+/** Index over each building's whole site (plot when it has one). */
 function buildingIndex(buildings: readonly Building[]): SpatialGrid<Building> {
   const grid = new SpatialGrid<Building>(32);
-  for (const b of buildings) grid.insert(b, obbBox(b.footprint));
+  for (const b of buildings) grid.insert(b, obbBox(b.plot ?? b.footprint));
   return grid;
 }
 
 function nearBuilding(grid: SpatialGrid<Building>, pos: { x: number; z: number }, margin: number): boolean {
-  return grid.query(around(pos, margin)).some((b) => pointInObb(pos, b.footprint, margin));
+  return grid.query(around(pos, margin)).some((b) => pointInObb(pos, b.plot ?? b.footprint, margin));
 }
+
+/** Clearance kept around the railway centre line for trees and lamps. */
+const RAIL_CLEARANCE = 8;
 
 export function placeTrees(
   rng: Rng,
@@ -25,6 +30,7 @@ export function placeTrees(
   roads: RoadNetwork,
   buildings: Building[],
   parks: Park[],
+  railCorridor: Vec2[],
 ): TreeSpot[] {
   const trees: TreeSpot[] = [];
   const roadIndex = new RoadIndex(roads);
@@ -37,13 +43,15 @@ export function placeTrees(
       if (inPark && distance(pos, inPark.pond.center) < inPark.pond.radius + 3) continue;
       if (roadIndex.isNear(pos, STREET_CLEARANCE + 2)) continue;
       if (nearBuilding(buildingGrid, pos, 2)) continue;
+      if (distanceToPolyline(pos, railCorridor) < RAIL_CLEARANCE) continue;
       trees.push({ pos, scale: rng.range(0.75, 1.3), tint: rng.next() });
     }
   }
   return trees;
 }
 
-export function placeLamps(roads: RoadNetwork, buildings: Building[]): LampSpot[] {
+export function placeLamps(roads: RoadNetwork, buildings: Building[], railCorridor: Vec2[]): LampSpot[] {
+  const bays = buildings.flatMap((b) => (b.bay ? [b.bay] : []));
   const lamps: LampSpot[] = [];
   const buildingGrid = buildingIndex(buildings);
   for (const edge of roads.edges) {
@@ -53,8 +61,10 @@ export function placeLamps(roads: RoadNetwork, buildings: Building[]): LampSpot[
       for (let s = start; s < edge.length - 14; s += LAMP_SPACING) {
         const { point, dir } = samplePolyline(edge.points, s);
         const outward = scale(rightOf(dir), side);
-        const pos = add(point, scale(outward, STREET_CLEARANCE - 0.6));
+        const pos = add(point, scale(outward, STREET_CLEARANCE - 0.3));
         if (nearBuilding(buildingGrid, pos, 0.5)) continue;
+        if (distanceToPolyline(pos, railCorridor) < RAIL_CLEARANCE) continue;
+        if (bays.some((bay) => bay.edgeId === edge.id && bay.side === side && Math.abs(bay.s - s) < bay.length / 2 + 1)) continue;
         lamps.push({ pos, rotation: Math.atan2(-outward.x, -outward.z) });
       }
     }

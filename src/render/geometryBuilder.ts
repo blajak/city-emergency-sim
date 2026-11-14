@@ -152,3 +152,89 @@ export function addGableRoof(
   b.addPolygon([p(halfW, y, halfD), p(halfW, y, -halfD), p(halfW, top, 0)], wallColor);
   b.addPolygon([p(-halfW, y, -halfD), p(-halfW, y, halfD), p(-halfW, top, 0)], wallColor);
 }
+
+/** Polygon in a local frame, flipped if needed so its normal points along `towards` (local). */
+export function addFacing(
+  b: GeometryBuilder,
+  frame: Frame,
+  local: V3[],
+  towards: V3,
+  color: THREE.Color,
+  uvs?: UV[],
+): void {
+  const verts = local.map(([x, y, z]) => frame.toWorld(x, y, z));
+  const [a, bb, c] = local;
+  const ux = bb[0] - a[0], uy = bb[1] - a[1], uz = bb[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const n: V3 = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+  if (n[0] * towards[0] + n[1] * towards[1] + n[2] * towards[2] < 0) {
+    verts.reverse();
+    uvs = uvs ? [...uvs].reverse() : undefined;
+  }
+  b.addPolygon(verts, color, uvs);
+}
+
+/** Flat rectangle (facing up) in a local frame, e.g. a car park or a pitch. */
+export function addFlatRect(
+  b: GeometryBuilder,
+  frame: Frame,
+  ox: number,
+  oz: number,
+  halfW: number,
+  halfD: number,
+  y: number,
+  color: THREE.Color,
+): void {
+  addFacing(
+    b,
+    frame,
+    [
+      [ox - halfW, y, oz - halfD],
+      [ox + halfW, y, oz - halfD],
+      [ox + halfW, y, oz + halfD],
+      [ox - halfW, y, oz + halfD],
+    ],
+    [0, 1, 0],
+    color,
+  );
+}
+
+/**
+ * Surface of revolution around a vertical axis at (ox, oz): `profile` is a
+ * list of [radius, y] from bottom to top. Covers cylinders, cones and the
+ * curved shape of a cooling tower. A last radius of 0 closes the top.
+ */
+export function addLathe(
+  b: GeometryBuilder,
+  frame: Frame,
+  ox: number,
+  oz: number,
+  profile: [number, number][],
+  segments: number,
+  color: THREE.Color | ((ring: number) => THREE.Color),
+  capColor?: THREE.Color,
+): void {
+  const ring = (i: number, r: number, y: number): V3 => {
+    const a = (i / segments) * Math.PI * 2;
+    return [ox + Math.cos(a) * r, y, oz + Math.sin(a) * r];
+  };
+  for (let k = 0; k < profile.length - 1; k++) {
+    const [r0, y0] = profile[k];
+    const [r1, y1] = profile[k + 1];
+    const c = typeof color === 'function' ? color(k) : color;
+    for (let i = 0; i < segments; i++) {
+      const mid = ((i + 0.5) / segments) * Math.PI * 2;
+      const quad = [ring(i, r0, y0), ring(i + 1, r0, y0), ring(i + 1, r1, y1), ring(i, r1, y1)];
+      if (r1 === 0) quad.pop();
+      addFacing(b, frame, quad, [Math.cos(mid), 0, Math.sin(mid)], c);
+    }
+  }
+  if (capColor) {
+    const [r, y] = profile[profile.length - 1];
+    if (r > 0) {
+      const cap: V3[] = [];
+      for (let i = 0; i < segments; i++) cap.push(ring(i, r, y));
+      addFacing(b, frame, cap, [0, 1, 0], capColor);
+    }
+  }
+}

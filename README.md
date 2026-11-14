@@ -15,10 +15,12 @@ pass, and it works the scene before heading back.
 
 ## Features
 
-- **Procedural low-poly city.** A European-style street grid with curved and diagonal streets,
-  ~250 buildings with windows, shopfronts and gabled or flat roofs, a park with a pond,
-  street lamps, trees, crosswalks and stop lines. Every seed gives the same city
-  (`?seed=42` for a different one).
+- **Procedural low-poly city.** ~270 streets in nine districts (old town, shopping,
+  residential, industrial) with ~1300 buildings: tenements, apartment blocks, houses,
+  shops with awnings, offices, a mall, supermarkets, a town hall, a hospital, schools,
+  a stadium, a sports hall, a pool, factories, warehouses, a container terminal, a waste
+  depot and a power plant. Parks, street lamps, trees, crosswalks, delivery lay-bys.
+  Every seed gives the same city (`?seed=42` for a different one).
 - **Traffic.** ~20 cars on random routes with realistic car-following (Intelligent Driver
   Model): smooth acceleration, safe gaps, slowing down for turns.
 - **Traffic lights.** Phased signals at every intersection with green / yellow / all-red
@@ -50,7 +52,7 @@ pass, and it works the scene before heading back.
 | Speed 1× / 2× | <kbd>1</kbd> / <kbd>2</kbd> |
 | Add or remove units | Click a station |
 
-URL parameters: `?seed=<number>` picks the city, `?scale=<1–10>` makes it bigger (10 ≈ 270 streets and 2500 buildings), `?cars=<number>` sets the traffic volume and `?debug` shows FPS, simulation cost and draw calls.
+URL parameters: `?seed=<number>` picks the city, `?scale=<1–10>` sets the size (default 10; 1 is a small town), `?cars=<number>` sets the traffic volume and `?debug` shows FPS, simulation cost and draw calls.
 
 ## How it works
 

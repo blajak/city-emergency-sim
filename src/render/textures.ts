@@ -82,3 +82,47 @@ export function createSignTexture(text: string, background: string, foreground: 
     ctx.fillText(text, 256, 52);
   });
 }
+
+export interface SignStyle {
+  text: string;
+  background: string;
+  foreground: string;
+}
+
+export interface SignAtlas {
+  texture: THREE.CanvasTexture;
+  /** UV rectangle [u0, v0, u1, v1] of a sign by its text. */
+  uv: Map<string, [number, number, number, number]>;
+  /** Width / height of every sign cell. */
+  aspect: number;
+}
+
+/** All shop and landmark signs in one texture, so they render in a single draw call. */
+export function createSignAtlas(styles: readonly SignStyle[]): SignAtlas {
+  const cellW = 512;
+  const cellH = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = cellW;
+  canvas.height = cellH * styles.length;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas not supported');
+  const uv = new Map<string, [number, number, number, number]>();
+  styles.forEach((style, i) => {
+    const y = i * cellH;
+    ctx.fillStyle = style.background;
+    ctx.fillRect(0, y, cellW, cellH);
+    ctx.fillStyle = style.foreground;
+    ctx.font = `bold ${style.text.length > 10 ? 48 : 58}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(style.text, cellW / 2, y + cellH / 2 + 3, cellW - 24);
+    // Canvas y grows downwards, texture v upwards.
+    const v1 = 1 - y / canvas.height;
+    const v0 = 1 - (y + cellH) / canvas.height;
+    uv.set(style.text, [0.004, v0 + 0.002, 0.996, v1 - 0.002]);
+  });
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return { texture, uv, aspect: cellW / cellH };
+}

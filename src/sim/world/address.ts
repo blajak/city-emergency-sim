@@ -1,4 +1,4 @@
-import type { Building, City } from './types';
+import type { Building, BuildingKind, City } from './types';
 
 /** Metres of frontage per house number step. */
 const NUMBER_SPACING = 10;
@@ -18,15 +18,30 @@ export function formatAddress(city: City, building: Building): string {
   return `${n} ${edge.name}`;
 }
 
+const LABELS: Record<BuildingKind, string> = {
+  residential: 'Tenement house',
+  apartment: 'Apartment block',
+  house: 'House',
+  office: 'Office building',
+  shop: 'Shop',
+  petrol_station: 'Petrol station',
+  supermarket: 'Supermarket',
+  mall: 'Shopping mall',
+  town_hall: 'Town hall',
+  school: 'School',
+  hospital: 'Hospital',
+  sports_hall: 'Sports hall',
+  pool: 'Swimming pool',
+  stadium: 'Stadium',
+  factory: 'Factory',
+  warehouse: 'Warehouse',
+  container_yard: 'Container yard',
+  waste_depot: 'Waste depot',
+  power_plant: 'Power plant',
+  fire_station: 'Fire station',
+  police_station: 'Police station',
+};
+
 export function buildingLabel(building: Building): string {
-  switch (building.kind) {
-    case 'fire_station':
-      return 'Fire Station';
-    case 'police_station':
-      return 'Police Station';
-    case 'office':
-      return 'Office building';
-    case 'residential':
-      return 'Apartment house';
-  }
+  return LABELS[building.kind];
 }

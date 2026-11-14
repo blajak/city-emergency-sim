@@ -37,7 +37,7 @@ describe('10× city', () => {
 
   it('generates ~10× the streets and buildings quickly', () => {
     expect(city.roads.edges.length).toBeGreaterThanOrEqual(250);
-    expect(city.buildings.length).toBeGreaterThan(2000);
+    expect(city.buildings.length).toBeGreaterThan(1000);
     expect(generationMs).toBeLessThan(GENERATION_BUDGET_MS);
   });
 

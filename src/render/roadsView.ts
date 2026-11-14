@@ -3,11 +3,12 @@ import { subPolyline } from '../sim/math/geometry';
 import { type Vec2, add, normalize, rightOf, scale, sub, vec2 } from '../sim/math/vec2';
 import { CROSSWALK_LENGTH, LANE_WIDTH, ROAD_WIDTH, STREET_CLEARANCE } from '../sim/world/constants';
 import { approachDistance } from '../sim/world/roadGeometry';
-import type { Park, RoadEdge, RoadNetwork, RoadNode } from '../sim/world/types';
+import type { City, DeliveryBay, RoadEdge, RoadNode } from '../sim/world/types';
 import { GeometryBuilder } from './geometryBuilder';
 
 /** Layer heights, low to high, so flat layers never z-fight. */
 const Y = {
+  rail: 0.03,
   park: 0.04,
   pond: 0.07,
   sidewalk: 0.12,
@@ -22,12 +23,18 @@ const COLORS = {
   sidewalk: new THREE.Color(0xc4beb3),
   asphalt: new THREE.Color(0x454a50),
   marking: new THREE.Color(0xf2f2ee),
+  bayMarking: new THREE.Color(0xf2c230),
+  ballast: new THREE.Color(0x9a9183),
 };
 
 const DASH = 3;
 
-export function createRoadsView(network: RoadNetwork, parks: readonly Park[]): THREE.Mesh {
+export function createRoadsView(city: City): THREE.Mesh {
+  const { roads: network, parks } = city;
   const b = new GeometryBuilder();
+
+  // Ballast bed for the railway (tracks come with the railway milestone).
+  addRibbon(b, city.railCorridor, 4.5, Y.rail, COLORS.ballast);
 
   for (const park of parks) {
     b.addGroundPolygon(park.polygon, Y.park, COLORS.park);
@@ -46,6 +53,9 @@ export function createRoadsView(network: RoadNetwork, parks: readonly Park[]): T
   }
 
   for (const edge of network.edges) addMarkings(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
+  for (const building of city.buildings) {
+    if (building.bay) addBay(b, network.edges[building.bay.edgeId], building.bay);
+  }
 
   const mesh = new THREE.Mesh(
     b.build(),
@@ -54,6 +64,24 @@ export function createRoadsView(network: RoadNetwork, parks: readonly Park[]): T
   mesh.receiveShadow = true;
   mesh.name = 'roads';
   return mesh;
+}
+
+/** Delivery lay-by: asphalt cut into the sidewalk with a yellow outline. */
+function addBay(b: GeometryBuilder, edge: RoadEdge, bay: DeliveryBay): void {
+  const s0 = bay.s - bay.length / 2;
+  const s1 = bay.s + bay.length / 2;
+  const depth = STREET_CLEARANCE - ROAD_WIDTH / 2 - 0.3;
+  const middle = bay.side * (ROAD_WIDTH / 2 + depth / 2);
+  const outer = bay.side * (ROAD_WIDTH / 2 + depth - 0.1);
+  const strip = subPolyline(edge.points, s0, s1, 1);
+  addRibbon(b, strip, depth / 2, Y.asphalt, COLORS.asphalt, middle);
+  addRibbon(b, strip, 0.08, Y.marking, COLORS.bayMarking, outer);
+  for (let s = s0; s + 1 <= s1; s += 2) {
+    addRibbon(b, subPolyline(edge.points, s, s + 1, 1), 0.08, Y.marking, COLORS.bayMarking, bay.side * (ROAD_WIDTH / 2 + 0.1));
+  }
+  for (const end of [s0, s1 - 0.16]) {
+    addRibbon(b, subPolyline(edge.points, end, end + 0.16, 1), depth / 2, Y.marking, COLORS.bayMarking, middle);
+  }
 }
 
 function addMarkings(b: GeometryBuilder, edge: RoadEdge, from: RoadNode, to: RoadNode): void {

@@ -10,7 +10,7 @@ Builds on v1 (see SPEC.md); all v1 behaviour stays.
 | | v1 | v2 target |
 | --- | --- | --- |
 | Road segments | 30 | ~250–300 |
-| Buildings | ~250 | ~2000–2500 |
+| Buildings | ~250 | ~1300 (fewer but larger: block-sized sites, gardens between houses) |
 | Vehicles at once | ~25 | ~400–500 |
 | Frame rate | 60 FPS | 60 FPS on Apple Silicon, ≥30 FPS on a laptop with integrated graphics |
 | City generation | instant | < 1.5 s |
@@ -135,8 +135,12 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    overlay, benchmark test. Verified at 10× with today's city generator scaled up
    (400 vehicles: ~0.5 ms per sim step; 30 draw calls; 60 FPS at 2560×1600 on Apple Silicon).
    No Web Worker needed at this scale.
-2. **City generator v2**: bigger map, districts, main streets, landmark buildings and
-   their models, delivery bays, district labels.
+2. ✅ **City generator v2**: bigger map (now the default), nine districts, landmark
+   buildings and their models, delivery bays, railway corridor, district labels.
+   Main streets are not visually distinct yet. Emergency driving got safer rules found
+   by stress tests on the new layout (no passing next to a vehicle at the stop line,
+   no overtaking towards an oncoming overtaking unit, yielding vehicles crawl instead
+   of stopping, parked vehicles leave room for a fire engine to pass).
 3. **Railway**: track, level crossings with barriers, passenger trains + 2 stations,
    freight trains + hub.
 4. **Buses**: lines, stops, bays, depot, timetable.
@@ -148,6 +152,12 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    card + follow camera, city pulse, performance pass, README / GIF update.
 
 Each milestone keeps the existing collision / gridlock tests green and adds its own.
+
+## Notes for later milestones
+
+- With one station of each kind, responses in the 10× city take ~2 minutes (median
+  drive 108 s, max ~4.5 min across ~1.3 km). Worth considering a second fire / police
+  station for big cities.
 
 ## Out of scope (for now)
 
