@@ -141,8 +141,13 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    by stress tests on the new layout (no passing next to a vehicle at the stop line,
    no overtaking towards an oncoming overtaking unit, yielding vehicles crawl instead
    of stopping, parked vehicles leave room for a fire engine to pass).
-3. **Railway**: track, level crossings with barriers, passenger trains + 2 stations,
-   freight trains + hub.
+3. ✅ **Railway**: double-track passenger line with tunnels at both ends and two stations
+   (platforms, canopies, footbridge), separate freight track from the freight hub down a
+   branch to the Dockside terminal (push-pull shuttle), 18 level crossings with
+   barriers and flashing lights. Safety: crossings close when a train could arrive
+   within 18 s; trains only pass a closed crossing with nobody on it; cars never stop on
+   the tracks. Small cities (scale 1) have the passenger line but no stations or freight.
+   Also fixed: left turns no longer wait forever for a stopped oncoming car.
 4. **Buses**: lines, stops, bays, depot, timetable.
 5. **Logistics**: articulated trucks with deliveries, garbage trucks with collection routes.
 6. **Power grid and night**: plant, substations, power lines, blackout card,

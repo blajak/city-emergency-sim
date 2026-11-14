@@ -1,6 +1,7 @@
 import { Dispatcher } from './dispatch/dispatcher';
 import type { IncidentType, ReportResult } from './dispatch/types';
 import { createRng } from './math/rng';
+import { RailSystem } from './rail/railSystem';
 import { SignalSystem } from './signals/signalSystem';
 import { buildLaneGraph } from './traffic/laneGraph';
 import { TrafficSystem } from './traffic/trafficSystem';
@@ -25,6 +26,7 @@ export interface SimulationOptions {
  */
 export class Simulation {
   readonly signals: SignalSystem;
+  readonly rail: RailSystem;
   readonly traffic: TrafficSystem;
   readonly dispatcher: Dispatcher;
   time = 0;
@@ -40,7 +42,9 @@ export class Simulation {
     const rng = createRng(city.seed ^ 0x9e3779b9);
     const graph = buildLaneGraph(city.roads);
     this.signals = new SignalSystem(graph, city.roads, rng);
-    this.traffic = new TrafficSystem(graph, rng, this.signals);
+    this.rail = new RailSystem(city, graph);
+    this.traffic = new TrafficSystem(graph, rng, this.signals, this.rail);
+    this.rail.attachTraffic(this.traffic.vehicles);
     this.dispatcher = new Dispatcher(city, this.traffic, rng);
     for (let i = 0; i < (options.fireUnits ?? 1); i++) this.dispatcher.addUnit('fire');
     for (let i = 0; i < (options.policeUnits ?? 1); i++) this.dispatcher.addUnit('police');
@@ -75,6 +79,7 @@ export class Simulation {
 
   private stepInner(): void {
     this.signals.step(SIM_DT);
+    this.rail.step(SIM_DT);
     const events = this.traffic.step(SIM_DT);
     this.time += SIM_DT;
     this.dispatcher.update(this.time, SIM_DT, events);

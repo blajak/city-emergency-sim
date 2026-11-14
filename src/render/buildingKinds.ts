@@ -29,6 +29,10 @@ export const SIGN_STYLES: SignStyle[] = [
   { text: 'POWER PLANT', background: '#263238', foreground: '#ffca28' },
   { text: 'RECYCLING', background: '#2e7d32', foreground: '#ffffff' },
   { text: 'LOGISTICS', background: '#37474f', foreground: '#ffffff' },
+  { text: 'WEST STATION', background: '#1f3a5f', foreground: '#ffffff' },
+  { text: 'CENTRAL STATION', background: '#1f3a5f', foreground: '#ffffff' },
+  { text: 'FREIGHT HUB', background: '#37474f', foreground: '#ffca28' },
+  { text: 'FREIGHT TERMINAL', background: '#37474f', foreground: '#ffca28' },
 ];
 
 const GLASS = color(0x5d7a8c);
@@ -77,6 +81,11 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addWasteDepot(builders, b, rng);
     case 'power_plant':
       return addPowerPlant(builders, b);
+    case 'train_station':
+      return addTrainStation(builders, b);
+    case 'freight_hub':
+    case 'freight_terminal':
+      return addFreightYard(builders, b, rng);
     default:
       return;
   }
@@ -581,4 +590,56 @@ function addStadium(builders: Builders, b: Building): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Railway buildings (tracks and platforms are drawn by the rail view)
+// ---------------------------------------------------------------------------
 
+/** Footprint centre in the plot frame; railway buildings stand in the front part. */
+function frontOffset(b: Building): number {
+  return b.plot ? b.plot.halfD - b.footprint.halfD : 0;
+}
+
+function addTrainStation(builders: Builders, b: Building): void {
+  const frame = plotFrame(b);
+  const oz = frontOffset(b);
+  const { halfW, halfD } = b.footprint;
+  const wall = color(b.facadeColor);
+  // Forecourt between the building and the street side of the plot is paved.
+  addFlatRect(builders.solid, frame, 0, oz, b.plot!.halfW, halfD, 0.07, PAVING);
+  // Main hall with tall arched windows and a central clock gable.
+  box(builders.facade, frame, 0, oz, halfW, halfD, 0, b.height, wall, color(0x7d5a44), { bayWidth: BAY_WIDTH * 1.6, rowHeight: b.height / 2 });
+  box(builders.solid, frame, 0, oz, halfW + 0.3, halfD + 0.3, b.height, b.height + 0.6, shade(b.facadeColor, 0.85), color(0x7d5a44));
+  box(builders.solid, frame, 0, oz + halfD - 1, 5, 1.2, b.height, b.height + 5, wall);
+  const clock: V3[] = [];
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    clock.push([Math.cos(a) * 1.3, b.height + 2.6 + Math.sin(a) * 1.3, oz + halfD + 0.25]);
+  }
+  addFacing(builders.solid, frame, clock, [0, 0, 1], color(0xf7f3e8));
+  box(builders.solid, frame, 0, oz + halfD + 1.4, halfW * 0.6, 1.4, 4, 4.3, color(0x1f3a5f));
+  sign(builders, frame, b.name === 'West Station' ? 'WEST STATION' : 'CENTRAL STATION', 11, b.height - 1.5, oz + halfD + 0.1);
+}
+
+function addFreightYard(builders: Builders, b: Building, rng: Rng): void {
+  const frame = plotFrame(b);
+  const plot = b.plot!;
+  const oz = frontOffset(b);
+  const { halfW, halfD } = b.footprint;
+  // Office / warehouse on the street side.
+  box(builders.solid, frame, -plot.halfW + halfW + 2, oz, halfW, halfD, 0, b.height, color(b.facadeColor), color(0x9ea4a8));
+  box(builders.solid, frame, -plot.halfW + halfW + 2, oz, halfW + 0.04, halfD + 0.04, b.height - 2.2, b.height - 1.2, GLASS);
+  sign(builders, frame, b.kind === 'freight_hub' ? 'FREIGHT HUB' : 'FREIGHT TERMINAL', 9, b.height - 3.2, oz + halfD + 0.1, -plot.halfW + halfW + 2);
+  // Container stacks at the back of the yard (the tracks run through the middle).
+  const colors = [0xc0392b, 0x2b5ca8, 0x2e7d5b, 0xe67e22, 0x8e8e8e, 0xf1c40f];
+  const zBack = -plot.halfD + 4;
+  for (let x = -plot.halfW + 6; x < plot.halfW - 6; x += 7) {
+    if (rng.chance(0.2)) continue;
+    const stack = rng.int(1, 3);
+    for (let k = 0; k < stack; k++) box(builders.solid, frame, x, zBack, 3.05, 1.22, k * 2.6, k * 2.6 + 2.5, color(rng.pick(colors)));
+  }
+  // Gantry crane spanning the yard across the tracks.
+  const yellow = color(0xf2b134);
+  const gx = plot.halfW * 0.35;
+  for (const z of [-plot.halfD + 1.5, oz - halfD - 1.5]) box(builders.solid, frame, gx, z, 0.5, 0.5, 0, 15, yellow);
+  box(builders.solid, frame, gx, (oz - halfD - plot.halfD) / 2, 0.6, (plot.halfD + oz - halfD) / 2, 15, 16.2, yellow);
+}

@@ -89,6 +89,7 @@ export function isResponding(v: Vehicle): boolean {
 /** Curb offset that keeps a parked vehicle clear of traffic in the lane. */
 export function parkingOffset(width: number): number {
   // Far enough that the widest vehicle (fire engine, 2.5 m) can pass in the lane
-  // with the passing clearance; partly on the sidewalk, as in real streets.
-  return 1.45 + width / 2;
+  // with the passing clearance plus 5 cm of slack; partly on the sidewalk, as in
+  // real streets.
+  return 1.5 + width / 2;
 }

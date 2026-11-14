@@ -33,8 +33,8 @@ export function createRoadsView(city: City): THREE.Mesh {
   const { roads: network, parks } = city;
   const b = new GeometryBuilder();
 
-  // Ballast bed for the railway (tracks come with the railway milestone).
-  addRibbon(b, city.railCorridor, 4.5, Y.rail, COLORS.ballast);
+  // Ballast bed under every track.
+  for (const track of city.rail.tracks) addRibbon(b, track.points, 2.3, Y.rail, COLORS.ballast);
 
   for (const park of parks) {
     b.addGroundPolygon(park.polygon, Y.park, COLORS.park);

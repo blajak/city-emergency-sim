@@ -2,6 +2,7 @@ import { createRng } from '../math/rng';
 import { placeBuildings } from './buildings';
 import { placeLamps, placeTrees } from './decor';
 import { planDistricts } from './districts';
+import { planRail } from './rail';
 import { generateRoadLayout } from './roadNetwork';
 import type { Bounds, City, RoadNetwork } from './types';
 
@@ -18,18 +19,19 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
   const layout = generateRoadLayout(rng, scale);
   const bounds = computeBounds(layout.network, MAP_MARGIN);
   const districts = planDistricts(rng, bounds, scale);
-  const buildings = placeBuildings(rng, layout, districts, scale);
+  const rail = planRail(layout, bounds);
+  const buildings = placeBuildings(rng, layout, districts, scale, rail);
   return {
     seed,
     scale,
     bounds,
     roads: layout.network,
     districts,
-    railCorridor: layout.railCorridor,
+    rail,
     buildings,
     parks: layout.parks,
-    trees: placeTrees(rng, bounds, layout.network, buildings, layout.parks, layout.railCorridor),
-    lamps: placeLamps(layout.network, buildings, layout.railCorridor),
+    trees: placeTrees(rng, bounds, layout.network, buildings, layout.parks, rail),
+    lamps: placeLamps(layout.network, buildings, rail),
   };
 }
 

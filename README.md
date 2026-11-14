@@ -35,6 +35,11 @@ pass, and it works the scene before heading back.
   at the station takes over the patrol; otherwise the first car to finish an incident does.
 - **Emergency driving.** Responding units pre-empt intersections, cross red lights at low
   speed, and overtake civilians who pull over to the right.
+- **Railway.** Passenger trains run every 2½ minutes in each direction, coming out of a
+  tunnel, stopping at West Station and Central Station and leaving through the tunnel on
+  the other side. A freight train shuttles between the freight hub and the Dockside
+  terminal. Level crossings close with flashing lights and barriers; cars wait, never
+  stop on the tracks, and trains only pass a crossing that is closed and clear.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
 

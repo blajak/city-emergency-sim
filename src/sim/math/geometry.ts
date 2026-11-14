@@ -196,3 +196,40 @@ export function projectOnPolyline(points: readonly Vec2[], p: Vec2): number {
   }
   return bestS;
 }
+
+export interface PolylineIntersection {
+  point: Vec2;
+  /** Arc length along the first polyline. */
+  sa: number;
+  /** Arc length along the second polyline. */
+  sb: number;
+}
+
+/** All points where two polylines cross. */
+export function intersectPolylines(a: readonly Vec2[], b: readonly Vec2[]): PolylineIntersection[] {
+  const out: PolylineIntersection[] = [];
+  let accA = 0;
+  for (let i = 0; i < a.length - 1; i++) {
+    const p = a[i];
+    const r = sub(a[i + 1], p);
+    const lenA = Math.hypot(r.x, r.z);
+    let accB = 0;
+    for (let j = 0; j < b.length - 1; j++) {
+      const q = b[j];
+      const s = sub(b[j + 1], q);
+      const lenB = Math.hypot(s.x, s.z);
+      const denom = r.x * s.z - r.z * s.x;
+      if (Math.abs(denom) > 1e-9) {
+        const qp = sub(q, p);
+        const t = (qp.x * s.z - qp.z * s.x) / denom;
+        const u = (qp.x * r.z - qp.z * r.x) / denom;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+          out.push({ point: add(p, scale(r, t)), sa: accA + t * lenA, sb: accB + u * lenB });
+        }
+      }
+      accB += lenB;
+    }
+    accA += lenA;
+  }
+  return out;
+}

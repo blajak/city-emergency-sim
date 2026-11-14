@@ -38,10 +38,13 @@ const LABELS: Record<BuildingKind, string> = {
   container_yard: 'Container yard',
   waste_depot: 'Waste depot',
   power_plant: 'Power plant',
+  train_station: 'Train station',
+  freight_hub: 'Freight hub',
+  freight_terminal: 'Freight terminal',
   fire_station: 'Fire station',
   police_station: 'Police station',
 };
 
 export function buildingLabel(building: Building): string {
-  return LABELS[building.kind];
+  return building.name ?? LABELS[building.kind];
 }

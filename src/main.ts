@@ -2,6 +2,7 @@ import './style.css';
 import { createCityView } from './render/cityView';
 import { IncidentsView } from './render/incidentsView';
 import { DistrictLabelsView } from './render/labelsView';
+import { RailView } from './render/railView';
 import { createSceneContext } from './render/sceneContext';
 import { SignalsView } from './render/signalsView';
 import { VehiclesView } from './render/vehiclesView';
@@ -34,6 +35,7 @@ const vehiclesView = new VehiclesView();
 const signalsView = new SignalsView(sim.signals, sim.traffic.graph);
 const incidentsView = new IncidentsView(city);
 const labelsView = new DistrictLabelsView(city.districts);
+const railView = new RailView(city, sim.rail);
 
 const hud = requireElement('hud');
 const toast = new Toast(hud);
@@ -67,7 +69,7 @@ function updateViewInsets(): void {
 updateViewInsets();
 window.addEventListener('resize', updateViewInsets);
 
-ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, interaction.highlight.object);
+ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, railView.group, interaction.highlight.object);
 
 const debug = params.has('debug') ? new DebugOverlay(hud, sim, ctx.renderer) : null;
 
@@ -76,6 +78,7 @@ ctx.start((dt) => {
   const alpha = sim.advance(dt);
   vehiclesView.update(sim.traffic.vehicles, alpha, sim.time);
   signalsView.update();
+  railView.update(alpha, sim.time);
   incidentsView.update(sim.dispatcher, sim.time);
   labelsView.update(ctx.camera, ctx.controls.target);
   panel.render();

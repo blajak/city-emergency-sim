@@ -5,6 +5,7 @@ import { type Vec2, add, distance, dot, lerp, normalize, rightOf, scale, sub, ve
 import { CROSSWALK_LENGTH, FLOOR_HEIGHT, GROUND_FLOOR_HEIGHT, STREET_CLEARANCE } from './constants';
 import { districtAt } from './districts';
 import { RoadIndex } from './roadIndex';
+import type { RailPlan } from './rail';
 import type { Block, CityLayout, StationSite } from './roadNetwork';
 import type {
   Building,
@@ -22,8 +23,6 @@ import type {
 const BUILDING_CELL_SIZE = 32;
 /** Gap between the sidewalk edge and the facade. */
 const SETBACK = 0.4;
-/** Half width of the strip kept free for the railway. */
-const RAIL_HALF_WIDTH = 6;
 /** Spacing of the probe points used to check that a footprint stays off roads. */
 const PROBE_SPACING = 4;
 
@@ -125,29 +124,37 @@ const BAY_LENGTH: Partial<Record<BuildingKind, number>> = {
 
 // ---------------------------------------------------------------------------
 
-export function placeBuildings(rng: Rng, layout: CityLayout, districts: readonly District[], cityScale: number): Building[] {
+export function placeBuildings(
+  rng: Rng,
+  layout: CityLayout,
+  districts: readonly District[],
+  cityScale: number,
+  railPlan: RailPlan,
+): Building[] {
   const { network, parks, stationSites } = layout;
   const buildings: Building[] = [];
   const roads = new RoadIndex(network);
-  const railPoints = samplePoints(layout.railCorridor, 2);
-  const rail = new SpatialGrid<Vec2>(BUILDING_CELL_SIZE);
-  for (const p of railPoints) rail.insert(p, pointsBox([p]));
+  /** Points along every railway corridor with the corridor's half width. */
+  const rail = new SpatialGrid<{ p: Vec2; halfWidth: number }>(BUILDING_CELL_SIZE);
+  for (const corridor of railPlan.corridors) {
+    for (const p of samplePoints(corridor.points, 2)) rail.insert({ p, halfWidth: corridor.halfWidth }, pointsBox([p], corridor.halfWidth));
+  }
   /** Footprints and plots already taken. */
   const taken = new SpatialGrid<OBB>(BUILDING_CELL_SIZE);
   const districtKind = (p: Vec2) => districts[districtAt(districts, p)].kind;
 
-  const isFree = (box: OBB): boolean => {
+  const isFree = (box: OBB, ignoreRail = false): boolean => {
     for (const p of probePoints(box)) {
       if (roads.isNear(p, STREET_CLEARANCE + SETBACK * 0.5)) return false;
     }
-    if (rail.query(obbBox(box, RAIL_HALF_WIDTH)).some((p) => pointInObb(p, box, RAIL_HALF_WIDTH))) return false;
+    if (!ignoreRail && rail.query(obbBox(box)).some(({ p, halfWidth }) => pointInObb(p, box, halfWidth))) return false;
     if (parks.some((park) => pointInPolygon(box.center, park.polygon))) return false;
     // Shrink slightly so neighbours in a terrace may touch.
     const shrunk = { ...box, halfW: box.halfW - 0.05, halfD: box.halfD - 0.05 };
     return !taken.query(obbBox(shrunk)).some((other) => obbOverlap(shrunk, other));
   };
 
-  const push = (spec: BuildingSpec, footprint: OBB, plot: OBB | null, edge: RoadEdge, s: number, side: Side) => {
+  const push = (spec: BuildingSpec, footprint: OBB, plot: OBB | null, edge: RoadEdge, s: number, side: Side, name: string | null = null) => {
     const building: Building = {
       id: buildings.length,
       kind: spec.kind,
@@ -155,6 +162,7 @@ export function placeBuildings(rng: Rng, layout: CityLayout, districts: readonly
       footprint,
       plot,
       variant: rng.next(),
+      name,
       bay: null,
       groundFloorHeight: spec.groundFloorHeight,
       upperFloors: spec.upperFloors,
@@ -185,8 +193,25 @@ export function placeBuildings(rng: Rng, layout: CityLayout, districts: readonly
   placeStation(stationSites.fire, STATION_SPECS.fire);
   placeStation(stationSites.police, STATION_SPECS.police);
 
-  // 2. Large sites that fill a block.
+  // 2. Railway sites: stations, freight hub and terminal around their tracks.
   const usedBlocks = new Set<Block>();
+  for (const site of railPlan.sites) {
+    const placed = blockSite(site.block, network, rng, site.front);
+    if (!placed) continue;
+    const { plot } = placed;
+    // The tracks run through the middle of the plot; the building stands in its front part.
+    const gap = site.kind === 'freight_terminal' ? 7 : 9;
+    const depth = plot.halfD - gap;
+    const width = Math.min(plot.halfW * (site.kind === 'train_station' ? 1.1 : 0.8), 44);
+    const footprint: OBB = { center: obbLocalToWorld(plot, 0, gap + depth / 2), halfW: width / 2, halfD: depth / 2, rotation: plot.rotation };
+    if (depth < 8 || !isFree(footprint) || !isFree(plot, true)) continue;
+    const height = { train_station: 12, freight_hub: 9, freight_terminal: 8 }[site.kind];
+    const spec: BuildingSpec = { kind: site.kind, width, depth, groundFloorHeight: height, upperFloors: 0, roof: 'flat', facadeColor: site.kind === 'train_station' ? 0xd9c7a6 : 0xb0b4b8 };
+    push(spec, footprint, plot, network.edges[placed.edgeId], placed.s, placed.side, site.name);
+    usedBlocks.add(site.block);
+  }
+
+  // 3. Large sites that fill a block.
   const mapCenter = vec2(
     (Math.min(...network.nodes.map((n) => n.pos.x)) + Math.max(...network.nodes.map((n) => n.pos.x))) / 2,
     (Math.min(...network.nodes.map((n) => n.pos.z)) + Math.max(...network.nodes.map((n) => n.pos.z))) / 2,
@@ -219,7 +244,7 @@ export function placeBuildings(rng: Rng, layout: CityLayout, districts: readonly
     }
   }
 
-  // 3. Terraces along both sides of every street, styled by district.
+  // 4. Terraces along both sides of every street, styled by district.
   let petrolStations = 0;
   const maxPetrol = Math.max(1, Math.round(cityScale / 3));
   for (const edge of network.edges) {
@@ -244,7 +269,7 @@ export function placeBuildings(rng: Rng, layout: CityLayout, districts: readonly
     }
   }
 
-  // 4. Delivery lay-bys.
+  // 5. Delivery lay-bys.
   assignBays(buildings, network);
 
   return buildings;
@@ -410,7 +435,7 @@ interface BlockSite {
  * The largest rectangle (roughly) inside a block, set back from the streets,
  * facing a randomly chosen bordering street.
  */
-function blockSite(block: Block, network: RoadNetwork, rng: Rng): BlockSite | null {
+function blockSite(block: Block, network: RoadNetwork, rng: Rng, preferredFront?: 'north' | 'south' | 'east' | 'west'): BlockSite | null {
   const [nw, ne, se, sw] = block.corners;
   const center = blockCenter(block);
   const east = normalize(lerp(sub(ne, nw), sub(se, sw), 0.5));
@@ -422,7 +447,8 @@ function blockSite(block: Block, network: RoadNetwork, rng: Rng): BlockSite | nu
   if (extentEW < 15 || extentNS < 15) return null;
 
   const fronts = (['south', 'north', 'east', 'west'] as const).filter((k) => block.sides[k] !== undefined);
-  const front = rng.pick(fronts);
+  if (fronts.length === 0) return null;
+  const front = preferredFront && block.sides[preferredFront] !== undefined ? preferredFront : rng.pick(fronts);
   const frontDir = { south, north: scale(south, -1), east, west: scale(east, -1) }[front];
   const sidewaysExtent = front === 'south' || front === 'north' ? extentEW : extentNS;
   const depthExtent = front === 'south' || front === 'north' ? extentNS : extentEW;

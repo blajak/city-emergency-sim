@@ -1,4 +1,5 @@
 import type { OBB } from '../math/geometry';
+import type { RailPlan } from './rail';
 import type { Vec2 } from '../math/vec2';
 
 export type NodeId = number;
@@ -69,6 +70,10 @@ export type BuildingKind =
   | 'container_yard'
   | 'waste_depot'
   | 'power_plant'
+  // railway
+  | 'train_station'
+  | 'freight_hub'
+  | 'freight_terminal'
   // emergency services
   | 'fire_station'
   | 'police_station';
@@ -104,6 +109,8 @@ export interface Building {
   plot: OBB | null;
   /** 0..1, picks model variations. */
   variant: number;
+  /** Display name for landmarks (stations), otherwise null. */
+  name: string | null;
   /** Delivery lay-by in front of the building, if it has one. */
   bay: DeliveryBay | null;
   groundFloorHeight: number;
@@ -147,8 +154,7 @@ export interface City {
   bounds: Bounds;
   roads: RoadNetwork;
   districts: District[];
-  /** Centre line of the strip kept free for the railway. */
-  railCorridor: Vec2[];
+  rail: RailPlan;
   buildings: Building[];
   parks: Park[];
   trees: TreeSpot[];

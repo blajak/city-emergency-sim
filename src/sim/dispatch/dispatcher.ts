@@ -276,9 +276,11 @@ export class Dispatcher {
     const taken = this.incidents
       .filter((i) => i !== incident && i.status !== 'resolved' && i.scene?.segment === base.segment)
       .map((i) => i.scene!.s);
-    for (const k of [0, 1, -1, 2, -2]) {
+    for (const k of [0, 1, -1, 2, -2, 3, -3]) {
       const s = lane.kind === 'lane' ? clampToLane(lane, base.s + k * (length + 2), length) : base.s;
-      if (taken.every((t) => Math.abs(t - s) > length + 1.5)) return { segment: base.segment, s };
+      if (taken.every((t) => Math.abs(t - s) > length + 1.5) && !this.traffic.blocksCrossing(base.segment, s, length)) {
+        return { segment: base.segment, s };
+      }
     }
     return base;
   }

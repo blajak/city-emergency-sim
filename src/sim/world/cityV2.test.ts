@@ -44,7 +44,11 @@ describe('10× city layout', () => {
     for (const b of city.buildings) {
       for (const corner of obbCorners(site(b))) {
         expect(roads.isNear(corner, STREET_CLEARANCE), `${b.kind} ${b.id} on a road`).toBe(false);
-        expect(distanceToPolyline(corner, city.railCorridor), `${b.kind} ${b.id} on the railway`).toBeGreaterThan(5);
+        if (!b.plot || !['train_station', 'freight_hub', 'freight_terminal'].includes(b.kind)) {
+          for (const corridor of city.rail.corridors) {
+            expect(distanceToPolyline(corner, corridor.points), `${b.kind} ${b.id} on the railway`).toBeGreaterThan(corridor.halfWidth - 1);
+          }
+        }
       }
       // The main structure stays inside its plot.
       if (b.plot) for (const corner of obbCorners(b.footprint)) expect(pointInObb(corner, b.plot, 0.01)).toBe(true);
@@ -74,9 +78,21 @@ describe('10× city layout', () => {
     }
   });
 
-  it('runs a railway corridor across the whole city', () => {
-    const xs = city.railCorridor.map((p) => p.x);
-    expect(Math.min(...xs)).toBeLessThanOrEqual(city.bounds.minX + 10);
-    expect(Math.max(...xs)).toBeGreaterThanOrEqual(city.bounds.maxX - 10);
+  it('runs a double-track line across the whole city, with stations and a freight line', () => {
+    const [east, west] = city.rail.tracks;
+    expect(east.kind).toBe('eastbound');
+    expect(west.kind).toBe('westbound');
+    expect(east.points[0].x).toBeCloseTo(city.bounds.minX, 0);
+    expect(east.points.at(-1)!.x).toBeCloseTo(city.bounds.maxX, 0);
+    expect(west.points[0].x).toBeCloseTo(city.bounds.maxX, 0);
+    const kinds = city.buildings.map((b) => b.kind);
+    expect(kinds.filter((k) => k === 'train_station')).toHaveLength(2);
+    expect(kinds).toContain('freight_hub');
+    expect(kinds).toContain('freight_terminal');
+    const freight = city.rail.tracks.find((t) => t.kind === 'freight')!;
+    // The freight line ends in the industrial south-east.
+    const terminal = city.buildings.find((b) => b.kind === 'freight_terminal')!;
+    expect(city.districts[terminal.district].kind).toBe('industrial');
+    expect(freight.length).toBeGreaterThan(300);
   });
 });

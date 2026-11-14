@@ -2,6 +2,7 @@ import { samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
 import { rightOf } from '../math/vec2';
 import { type RoutePoint, Router } from '../routing/router';
+import type { LaneCrossing } from '../rail/crossings';
 import { NO_SIGNALS, type SignalLookup } from '../signals/signalSystem';
 import { DEFAULT_DRIVER, idmFreeTerm, idmInteractionTerm } from './idm';
 import type { Connector, Lane, LaneGraph, Segment, SegmentId, Turn } from './laneGraph';
@@ -65,6 +66,13 @@ const MODELS: VehicleModel[] = ['sedan', 'sedan', 'hatchback', 'hatchback', 'van
 
 export type TrafficEvent = { kind: 'parked'; vehicle: Vehicle } | { kind: 'departed'; vehicle: Vehicle };
 
+/** Level crossings on lanes, as the traffic sees them. */
+export interface CrossingLookup {
+  crossingsOn(laneId: SegmentId): readonly LaneCrossing[];
+}
+
+export const NO_CROSSINGS: CrossingLookup = { crossingsOn: () => [] };
+
 export interface ParkedVehicleSpec {
   role: VehicleRole;
   model: VehicleModel;
@@ -96,6 +104,7 @@ export class TrafficSystem {
     readonly graph: LaneGraph,
     private readonly rng: Rng,
     private readonly signals: SignalLookup = NO_SIGNALS,
+    private readonly crossings: CrossingLookup = NO_CROSSINGS,
   ) {
     this.router = new Router(graph);
     const byEdge = new Map<number, Lane[]>();
@@ -133,7 +142,7 @@ export class TrafficSystem {
       const crowded = this.vehicles.some(
         (v) => v.segment === lane.id && Math.abs(v.s - s) < MIN_SPAWN_SPACING,
       );
-      if (crowded) continue;
+      if (crowded || this.blocksCrossing(lane.id, s, length)) continue;
       const vehicle = this.createVehicle('civilian', model, this.rng.pick(CAR_COLORS), lane.id, s);
       vehicle.v = this.rng.range(2, 7);
       vehicle.wander = true;
@@ -342,6 +351,8 @@ export class TrafficSystem {
     for (let i = 0; i < path.length; i++) {
       const seg = this.segment(path[i]);
 
+      if (seg.kind === 'lane') this.levelCrossingObstacles(vehicle, seg, i === 0, offset, obstacle);
+
       const isFinal = vehicle.destination !== null && i === path.length - 1;
       if (isFinal) {
         // Final segment of a route: come to a stop at the destination.
@@ -390,6 +401,50 @@ export class TrafficSystem {
 
     const accel = p.maxAccel * (idmFreeTerm(vehicle.v, desiredSpeed) - interaction);
     return Math.max(-MAX_BRAKING, accel);
+  }
+
+  /**
+   * Level crossings ahead on a lane: stop at the barrier while it is closing
+   * or closed (unless too close to stop when the lights start), and never
+   * drive onto the tracks without room to get all the way across.
+   */
+  private levelCrossingObstacles(
+    vehicle: Vehicle,
+    lane: Lane,
+    isCurrent: boolean,
+    offset: number,
+    obstacle: (gap: number, speed: number) => void,
+  ): void {
+    for (const lc of this.crossings.crossingsOn(lane.id)) {
+      // Clearly past the barrier: keep going and clear the tracks. (A car waiting at
+      // the barrier sits just before it; anyone between the barrier and the tracks
+      // can still stop in the 2.5 m before the danger zone.)
+      if (isCurrent && vehicle.s > lc.stopS + 0.5) continue;
+      const distance = offset + lc.stopS;
+      const stop = () => obstacle(distance - 0.3 + vehicle.driver.minGap, 0);
+      const { state } = lc.crossing;
+      if (state === 'closed') {
+        stop();
+      } else if (state === 'warning') {
+        const canStop = vehicle.v < 2 || (vehicle.v * vehicle.v) / (2 * vehicle.driver.comfortDecel) < distance - 1;
+        if (canStop) stop();
+      } else if (isCurrent) {
+        // Open: only cross if the queue beyond leaves room for the whole vehicle.
+        for (const other of this.bySegment.get(lane.id) ?? []) {
+          // Only vehicles ahead of us and past the barrier take up room beyond the tracks.
+          if (other === vehicle || other.s <= lc.stopS || other.s <= vehicle.s) continue;
+          if (other.s - other.length < lc.endS + vehicle.length + 1.5) {
+            stop();
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  /** True when a curb stop [s - length, s] on the lane would block a level crossing. */
+  blocksCrossing(laneId: SegmentId, s: number, length: number): boolean {
+    return this.crossings.crossingsOn(laneId).some((lc) => s > lc.stopS - 3 && s - length < lc.endS + 3);
   }
 
   /**
@@ -616,7 +671,10 @@ export class TrafficSystem {
       if (this.signals.lightFor(other.fromLane) !== 'green') continue;
       const lane = this.segment(other.fromLane);
       const head = this.firstInLine(lane.id);
-      if (head && head.plan[0] === other.id && lane.length - head.s < YIELD_DISTANCE) return true;
+      // A head that is stopped without permission to go (e.g. its exit is blocked)
+      // is not about to take the movement; don't wait for it forever.
+      const coming = head !== null && (head.v > 0.5 || head.reservation === other.id);
+      if (head && coming && head.plan[0] === other.id && lane.length - head.s < YIELD_DISTANCE) return true;
     }
     return false;
   }

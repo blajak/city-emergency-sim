@@ -31,7 +31,9 @@ describe('emergency driving', () => {
       let redCrossings = 0;
       let maxPullOver = 0;
 
-      for (let t = 0; t < 6 * 60 * 20; t++) {
+      // 7 minutes: since the railway, units sometimes wait at level crossings
+      // (routing around closed crossings comes with a later milestone).
+      for (let t = 0; t < 7 * 60 * 20; t++) {
         if (t % 500 === 0 && t < 5 * 60 * 20) sim.reportIncident(rng.chance(0.5) ? 'fire' : 'crime', rng.pick(targets).id);
         const before = vehicles.map((v) => v.segment);
         sim.step();
@@ -73,6 +75,7 @@ describe('emergency driving', () => {
       expect(engine.vehicle.sirens).toBe(true);
     }
     const average = times.reduce((a, b) => a + b, 0) / times.length;
-    expect(average).toBeLessThan(60);
+    // Without priority this takes ~100 s; level crossings add some waiting.
+    expect(average).toBeLessThan(75);
   });
 });

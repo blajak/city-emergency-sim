@@ -81,6 +81,9 @@ export interface CityLayout {
   blocks: Block[];
   /** Centre line of the railway corridor, west to east through the middle row of blocks. */
   railCorridor: Vec2[];
+  grid: { cols: number; rows: number };
+  /** Intersection at grid position (r, c). */
+  nodeAt(r: number, c: number): RoadNode;
 }
 
 /** Row of blocks the railway runs through (between grid rows `r` and `r + 1`). */
@@ -196,6 +199,8 @@ export function generateRoadLayout(rng: Rng, sizeScale = 1): CityLayout {
     stationSites: { fire: site(FIRE_STATION_SITE), police: site(POLICE_STATION_SITE) },
     blocks,
     railCorridor,
+    grid: { cols: COLS, rows: ROWS },
+    nodeAt,
   };
 }
 
@@ -219,6 +224,7 @@ function randomExtras(rng: Rng, cols: number, rows: number, scale: number, railR
         [`v:${r}:${c}`, r + 1, c],
       ] as const) {
         if (r2 >= rows || c2 >= cols || !outside(r, c) || !outside(r2, c2)) continue;
+        if (bordersRailBlock(key, railRowIndex, cols)) continue;
         if (interior(r, c) && interior(r2, c2) && !touched.has(node(r, c)) && !touched.has(node(r2, c2)) && rng.chance(0.05)) {
           removed.push(key);
           touched.add(node(r, c));
@@ -243,6 +249,19 @@ function randomExtras(rng: Rng, cols: number, rows: number, scale: number, railR
     parks.push([r, c]);
   }
   return { removed, curved, parks };
+}
+
+/**
+ * Streets around the blocks the railway uses (the rail row and the freight
+ * branch column) stay straight and complete, so stations, the freight hub
+ * and the terminal get regular plots.
+ */
+function bordersRailBlock(key: string, railRowIndex: number, cols: number): boolean {
+  const [kind, rs, cs] = key.split(':');
+  const r = Number(rs);
+  const c = Number(cs);
+  const blocks = kind === 'h' ? [[r - 1, c], [r, c]] : [[r, c - 1], [r, c]];
+  return blocks.some(([br, bc]) => br === railRowIndex || (bc === cols - 4 && br > railRowIndex));
 }
 
 /** Unit direction in which `edge` leaves `nodeId`. */
