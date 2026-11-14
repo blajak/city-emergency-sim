@@ -1,11 +1,23 @@
 import { distance, rightOf, scale, add, vec2 } from '../math/vec2';
-import { distanceToPolyline, pointInObb, pointInPolygon, samplePolyline } from '../math/geometry';
+import { pointInObb, pointInPolygon, samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
+import { SpatialGrid, around, obbBox } from '../math/spatialGrid';
+import { RoadIndex } from './roadIndex';
 import { STREET_CLEARANCE } from './constants';
 import type { Bounds, Building, LampSpot, Park, RoadNetwork, TreeSpot } from './types';
 
 const TREE_GRID = 6;
 const LAMP_SPACING = 28;
+
+function buildingIndex(buildings: readonly Building[]): SpatialGrid<Building> {
+  const grid = new SpatialGrid<Building>(32);
+  for (const b of buildings) grid.insert(b, obbBox(b.footprint));
+  return grid;
+}
+
+function nearBuilding(grid: SpatialGrid<Building>, pos: { x: number; z: number }, margin: number): boolean {
+  return grid.query(around(pos, margin)).some((b) => pointInObb(pos, b.footprint, margin));
+}
 
 export function placeTrees(
   rng: Rng,
@@ -15,14 +27,16 @@ export function placeTrees(
   parks: Park[],
 ): TreeSpot[] {
   const trees: TreeSpot[] = [];
+  const roadIndex = new RoadIndex(roads);
+  const buildingGrid = buildingIndex(buildings);
   for (let x = bounds.minX + 4; x < bounds.maxX - 4; x += TREE_GRID) {
     for (let z = bounds.minZ + 4; z < bounds.maxZ - 4; z += TREE_GRID) {
       const pos = vec2(x + rng.range(-2, 2), z + rng.range(-2, 2));
       const inPark = parks.find((p) => pointInPolygon(pos, p.polygon));
       if (!rng.chance(inPark ? 0.6 : 0.1)) continue;
       if (inPark && distance(pos, inPark.pond.center) < inPark.pond.radius + 3) continue;
-      if (roads.edges.some((e) => distanceToPolyline(pos, e.points) < STREET_CLEARANCE + 2)) continue;
-      if (buildings.some((b) => pointInObb(pos, b.footprint, 2))) continue;
+      if (roadIndex.isNear(pos, STREET_CLEARANCE + 2)) continue;
+      if (nearBuilding(buildingGrid, pos, 2)) continue;
       trees.push({ pos, scale: rng.range(0.75, 1.3), tint: rng.next() });
     }
   }
@@ -31,6 +45,7 @@ export function placeTrees(
 
 export function placeLamps(roads: RoadNetwork, buildings: Building[]): LampSpot[] {
   const lamps: LampSpot[] = [];
+  const buildingGrid = buildingIndex(buildings);
   for (const edge of roads.edges) {
     for (const side of [1, -1] as const) {
       // Alternate sides so lamps are staggered.
@@ -39,7 +54,7 @@ export function placeLamps(roads: RoadNetwork, buildings: Building[]): LampSpot[
         const { point, dir } = samplePolyline(edge.points, s);
         const outward = scale(rightOf(dir), side);
         const pos = add(point, scale(outward, STREET_CLEARANCE - 0.6));
-        if (buildings.some((b) => pointInObb(pos, b.footprint, 0.5))) continue;
+        if (nearBuilding(buildingGrid, pos, 0.5)) continue;
         lamps.push({ pos, rotation: Math.atan2(-outward.x, -outward.z) });
       }
     }

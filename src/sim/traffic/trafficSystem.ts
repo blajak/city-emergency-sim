@@ -1,7 +1,7 @@
 import { samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
 import { rightOf } from '../math/vec2';
-import { type RoutePoint, findRoute } from '../routing/router';
+import { type RoutePoint, Router } from '../routing/router';
 import { NO_SIGNALS, type SignalLookup } from '../signals/signalSystem';
 import { DEFAULT_DRIVER, idmFreeTerm, idmInteractionTerm } from './idm';
 import type { Connector, Lane, LaneGraph, Segment, SegmentId, Turn } from './laneGraph';
@@ -76,8 +76,12 @@ export class TrafficSystem {
   /** Connector id → vehicles holding a reservation for it. */
   private readonly reservations = new Map<SegmentId, Set<Vehicle>>();
   private readonly incomingConnectors = new Map<SegmentId, SegmentId[]>();
+  /** Vehicles taking part in traffic, per segment (rebuilt every step). */
   private bySegment = new Map<SegmentId, Vehicle[]>();
+  /** Every vehicle including parked ones, per segment (rebuilt every step). */
+  private allBySegment = new Map<SegmentId, Vehicle[]>();
   private nextId = 0;
+  readonly router: Router;
   private events: TrafficEvent[] = [];
 
   constructor(
@@ -85,6 +89,7 @@ export class TrafficSystem {
     private readonly rng: Rng,
     private readonly signals: SignalLookup = NO_SIGNALS,
   ) {
+    this.router = new Router(graph);
     for (const c of graph.connectors) {
       const list = this.incomingConnectors.get(c.toLane) ?? [];
       list.push(c.id);
@@ -183,7 +188,7 @@ export class TrafficSystem {
   }
 
   private routeFrom(vehicle: Vehicle, destination: RoutePoint) {
-    return findRoute(this.graph, { segment: vehicle.segment, s: vehicle.s }, destination);
+    return this.router.find({ segment: vehicle.segment, s: vehicle.s }, destination);
   }
 
   private createVehicle(role: VehicleRole, model: VehicleModel, color: number, segment: SegmentId, s: number): Vehicle {
@@ -271,7 +276,7 @@ export class TrafficSystem {
   }
 
   private blockedOnRight(vehicle: Vehicle): boolean {
-    return this.vehicles.some(
+    return (this.allBySegment.get(vehicle.segment) ?? []).some(
       (o) =>
         o !== vehicle &&
         o.segment === vehicle.segment &&
@@ -539,7 +544,7 @@ export class TrafficSystem {
 
   /** No parked vehicle at the curb right next to us. */
   private roomToPullOver(vehicle: Vehicle): boolean {
-    return !this.vehicles.some(
+    return !(this.allBySegment.get(vehicle.segment) ?? []).some(
       (o) =>
         o !== vehicle &&
         o.segment === vehicle.segment &&
@@ -707,11 +712,15 @@ export class TrafficSystem {
   /** Index of vehicles that take part in traffic (parked ones are off the road). */
   private indexBySegment(): void {
     this.bySegment = new Map();
-    for (const v of this.vehicles) {
-      if (v.maneuver === 'parked' || v.maneuver === 'waiting_to_merge') continue;
-      const list = this.bySegment.get(v.segment);
+    this.allBySegment = new Map();
+    const push = (map: Map<SegmentId, Vehicle[]>, v: Vehicle) => {
+      const list = map.get(v.segment);
       if (list) list.push(v);
-      else this.bySegment.set(v.segment, [v]);
+      else map.set(v.segment, [v]);
+    };
+    for (const v of this.vehicles) {
+      push(this.allBySegment, v);
+      if (v.maneuver !== 'parked' && v.maneuver !== 'waiting_to_merge') push(this.bySegment, v);
     }
   }
 }

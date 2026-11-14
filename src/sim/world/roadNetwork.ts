@@ -7,12 +7,13 @@ import type { EdgeId, Park, RoadEdge, RoadNetwork, RoadNode, Side } from './type
 /**
  * The city is a jittered grid of intersections with a few irregularities:
  * two removed segments (one leaves room for a park), a handful of curved
- * streets and one diagonal street.
+ * streets and one diagonal street. Larger scales extend the grid and add
+ * random curves, removed segments and parks outside the original area.
  *
  * Edge keys: `h:r:c` joins (r,c)–(r,c+1), `v:r:c` joins (r,c)–(r+1,c).
  */
-const COLS = 5;
-const ROWS = 4;
+const BASE_COLS = 5;
+const BASE_ROWS = 4;
 const SPACING_X = 96;
 const SPACING_Z = 84;
 const JITTER = 6;
@@ -38,9 +39,16 @@ const PARK_CORNERS: [number, number][] = [
   [3, 1],
 ];
 
-/** Street names for grid rows (east–west) and columns (north–south). */
-const ROW_NAMES = ['Northgate Rd', 'Linden St', 'Market St', 'Riverside Rd'];
-const COL_NAMES = ['West Ave', 'Chestnut Ave', 'Church St', 'Mill St', 'East Ave'];
+/** Street names for grid rows (east–west) and columns (north–south). The first ones are the v1 town. */
+const ROW_NAMES = [
+  'Northgate Rd', 'Linden St', 'Market St', 'Riverside Rd', 'Harbour St', 'Elm St', 'Station Rd',
+  'Orchard Ln', 'Bridge St', 'Mill Rd', 'Castle St', 'Meadow Ln', 'King St', 'Garden St',
+];
+const COL_NAMES = [
+  'West Ave', 'Chestnut Ave', 'Church St', 'Mill St', 'East Ave', 'Maple Ave', 'Oak St', 'Hill St',
+  'Park Ave', 'Union St', 'Willow St', 'Cedar Ave', 'Forge St', 'Abbey St', 'Copper Ln', 'Lake Ave',
+  'Spring St', 'Granary St',
+];
 const DIAGONAL_NAME = 'Old Town Way';
 
 const FIRE_STATION_SITE = { key: 'h:2:3', side: -1 as Side };
@@ -57,11 +65,24 @@ export interface CityLayout {
   stationSites: { fire: StationSite; police: StationSite };
 }
 
-export function generateRoadLayout(rng: Rng): CityLayout {
+/** Grid size for a scale factor: road count grows roughly linearly with `scale`. */
+export function gridSize(scale: number): { cols: number; rows: number } {
+  const k = Math.sqrt(Math.max(1, scale));
+  return {
+    cols: Math.min(COL_NAMES.length, Math.max(BASE_COLS, Math.round(4.5 * k))),
+    rows: Math.min(ROW_NAMES.length, Math.max(BASE_ROWS, Math.round(3.5 * k))),
+  };
+}
+
+export function generateRoadLayout(rng: Rng, scale = 1): CityLayout {
+  const { cols: COLS, rows: ROWS } = gridSize(scale);
   const nodes: RoadNode[] = [];
   const edges: RoadEdge[] = [];
   const edgeByKey = new Map<string, EdgeId>();
   const nodeAt = (r: number, c: number) => nodes[r * COLS + c];
+  const extras = COLS > BASE_COLS || ROWS > BASE_ROWS ? randomExtras(rng, COLS, ROWS, scale) : null;
+  const removed = new Set([...REMOVED_EDGES, ...(extras?.removed ?? [])]);
+  const curved: Record<string, number> = { ...CURVED_EDGES, ...(extras?.curved ?? {}) };
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -83,9 +104,9 @@ export function generateRoadLayout(rng: Rng): CityLayout {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const h = `h:${r}:${c}`;
-      if (c < COLS - 1 && !REMOVED_EDGES.has(h)) addEdge(h, ROW_NAMES[r], nodeAt(r, c), nodeAt(r, c + 1), CURVED_EDGES[h]);
+      if (c < COLS - 1 && !removed.has(h)) addEdge(h, ROW_NAMES[r], nodeAt(r, c), nodeAt(r, c + 1), curved[h]);
       const v = `v:${r}:${c}`;
-      if (r < ROWS - 1 && !REMOVED_EDGES.has(v)) addEdge(v, COL_NAMES[c], nodeAt(r, c), nodeAt(r + 1, c), CURVED_EDGES[v]);
+      if (r < ROWS - 1 && !removed.has(v)) addEdge(v, COL_NAMES[c], nodeAt(r, c), nodeAt(r + 1, c), curved[v]);
     }
   }
   addEdge('diagonal', DIAGONAL_NAME, nodeAt(...DIAGONAL.from), nodeAt(...DIAGONAL.to));
@@ -95,7 +116,11 @@ export function generateRoadLayout(rng: Rng): CityLayout {
     node.clearance = nodeClearance(node, edges);
   }
 
-  const parkPolygon = PARK_CORNERS.map(([r, c]) => nodeAt(r, c).pos);
+  const park = (corners: [number, number][]): Park => {
+    const polygon = corners.map(([r, c]) => nodeAt(r, c).pos);
+    return { polygon, pond: { center: polygonCentroid(polygon), radius: 11 } };
+  };
+  const extraParks = (extras?.parks ?? []).map(([r, c]) => park([[r, c], [r, c + 1], [r + 1, c + 1], [r + 1, c]]));
   const site = ({ key, side }: { key: string; side: Side }): StationSite => {
     const edgeId = edgeByKey.get(key);
     if (edgeId === undefined) throw new Error(`Station site edge ${key} does not exist`);
@@ -104,9 +129,54 @@ export function generateRoadLayout(rng: Rng): CityLayout {
 
   return {
     network: { nodes, edges },
-    parks: [{ polygon: parkPolygon, pond: { center: polygonCentroid(parkPolygon), radius: 11 } }],
+    parks: [park(PARK_CORNERS), ...extraParks],
     stationSites: { fire: site(FIRE_STATION_SITE), police: site(POLICE_STATION_SITE) },
   };
+}
+
+/**
+ * Variety for grids bigger than the v1 town, only outside its area so the
+ * original streets keep their shape: some curved streets, a few removed
+ * segments (never two at one intersection) and extra one-block parks.
+ */
+function randomExtras(rng: Rng, cols: number, rows: number, scale: number) {
+  const outside = (r: number, c: number) => r >= BASE_ROWS || c >= BASE_COLS;
+  const interior = (r: number, c: number) => r > 0 && c > 0 && r < rows - 1 && c < cols - 1;
+  const removed: string[] = [];
+  const curved: Record<string, number> = {};
+  const touched = new Set<string>();
+  const node = (r: number, c: number) => `${r}:${c}`;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      for (const [key, r2, c2] of [
+        [`h:${r}:${c}`, r, c + 1],
+        [`v:${r}:${c}`, r + 1, c],
+      ] as const) {
+        if (r2 >= rows || c2 >= cols || !outside(r, c) || !outside(r2, c2)) continue;
+        if (interior(r, c) && interior(r2, c2) && !touched.has(node(r, c)) && !touched.has(node(r2, c2)) && rng.chance(0.05)) {
+          removed.push(key);
+          touched.add(node(r, c));
+          touched.add(node(r2, c2));
+        } else if (rng.chance(0.1)) {
+          curved[key] = (rng.chance(0.5) ? 1 : -1) * rng.range(14, 20);
+        }
+      }
+    }
+  }
+
+  // Parks: whole blocks with all four sides present and straight.
+  const parks: [number, number][] = [];
+  const wanted = Math.floor(scale / 2.5);
+  for (let attempt = 0; attempt < 200 && parks.length < wanted; attempt++) {
+    const r = rng.int(0, rows - 2);
+    const c = rng.int(0, cols - 2);
+    if (!outside(r, c) || parks.some(([pr, pc]) => Math.abs(pr - r) < 3 && Math.abs(pc - c) < 3)) continue;
+    const sides = [`h:${r}:${c}`, `h:${r + 1}:${c}`, `v:${r}:${c}`, `v:${r}:${c + 1}`];
+    if (sides.some((k) => removed.includes(k) || k in curved)) continue;
+    parks.push([r, c]);
+  }
+  return { removed, curved, parks };
 }
 
 /** Unit direction in which `edge` leaves `nodeId`. */

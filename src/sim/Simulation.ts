@@ -29,6 +29,8 @@ export class Simulation {
   readonly dispatcher: Dispatcher;
   time = 0;
   timeScale: TimeScale = 1;
+  /** Smoothed wall-clock cost of one simulation step, ms (for the debug overlay). */
+  stepMs = 0;
   private accumulator = 0;
 
   constructor(
@@ -66,6 +68,12 @@ export class Simulation {
   }
 
   step(): void {
+    const started = performance.now();
+    this.stepInner();
+    this.stepMs += (performance.now() - started - this.stepMs) * 0.05;
+  }
+
+  private stepInner(): void {
     this.signals.step(SIM_DT);
     const events = this.traffic.step(SIM_DT);
     this.time += SIM_DT;

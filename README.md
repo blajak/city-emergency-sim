@@ -50,7 +50,7 @@ pass, and it works the scene before heading back.
 | Speed 1× / 2× | <kbd>1</kbd> / <kbd>2</kbd> |
 | Add or remove units | Click a station |
 
-URL parameters: `?seed=<number>` picks the city, `?cars=<number>` sets the traffic volume.
+URL parameters: `?seed=<number>` picks the city, `?scale=<1–10>` makes it bigger (10 ≈ 270 streets and 2500 buildings), `?cars=<number>` sets the traffic volume and `?debug` shows FPS, simulation cost and draw calls.
 
 ## How it works
 

@@ -18,24 +18,38 @@ export interface BeaconMount {
   z: number;
 }
 
+/**
+ * A vehicle model split for instancing: `paint` parts are white and get the
+ * per-vehicle colour as instance colour; `fixed` parts keep their own colours.
+ */
 export interface VehicleModelGeometry {
-  geometry: THREE.BufferGeometry;
+  paint: THREE.BufferGeometry;
+  fixed: THREE.BufferGeometry;
   beacons: BeaconMount[];
 }
 
+const WHITE_PAINT = new THREE.Color(0xffffff);
+
 /** Low-poly vehicle centred at the origin, front towards local +z. */
-export function buildVehicleModel(
-  model: VehicleModel,
-  length: number,
-  width: number,
-  paint: THREE.Color,
-): VehicleModelGeometry {
-  const b = new GeometryBuilder();
+export function buildVehicleModel(model: VehicleModel, length: number, width: number): VehicleModelGeometry {
+  const paintBuilder = new GeometryBuilder();
+  const fixedBuilder = new GeometryBuilder();
   const frame = new Frame(0, 0, 0);
   const hl = length / 2;
   const hw = width / 2;
-  const box = (ox: number, oz: number, halfW: number, halfD: number, y0: number, y1: number, color: THREE.Color, topColor?: THREE.Color) =>
-    addBox(b, { frame, ox, oz, halfW, halfD, y0, y1, color, topColor });
+  /** Marker colour: parts drawn in `paint` take the vehicle's own colour. */
+  const paint = WHITE_PAINT;
+  const box = (ox: number, oz: number, halfW: number, halfD: number, y0: number, y1: number, color: THREE.Color, topColor?: THREE.Color) => {
+    if (color === paint) {
+      addBox(paintBuilder, { frame, ox, oz, halfW, halfD, y0, y1, color });
+    } else if (topColor === paint) {
+      // e.g. a glass cabin with a painted roof: thin painted slab on top.
+      addBox(fixedBuilder, { frame, ox, oz, halfW, halfD, y0, y1, color });
+      addBox(paintBuilder, { frame, ox, oz, halfW: halfW + 0.01, halfD: halfD + 0.01, y0: y1, y1: y1 + 0.04, color: paint });
+    } else {
+      addBox(fixedBuilder, { frame, ox, oz, halfW, halfD, y0, y1, color, topColor });
+    }
+  };
 
   const wheels = (radius: number, axles: number[]) => {
     for (const sx of [-1, 1]) for (const z of axles) box(sx * (hw - 0.22), z, 0.2, radius * 0.55, 0, radius * 1.05, TYRE);
@@ -102,5 +116,5 @@ export function buildVehicleModel(
     }
   }
 
-  return { geometry: b.build(), beacons };
+  return { paint: paintBuilder.build(), fixed: fixedBuilder.build(), beacons };
 }

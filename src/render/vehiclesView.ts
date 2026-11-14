@@ -1,85 +1,143 @@
 import * as THREE from 'three';
-import type { Pose, Vehicle, VehicleId } from '../sim/traffic/vehicle';
+import { VEHICLE_DIMENSIONS, type Pose, type Vehicle, type VehicleModel } from '../sim/traffic/vehicle';
 import { type VehicleModelGeometry, buildVehicleModel } from './vehicleModels';
 
 /** Road surface height (vehicles sit on the asphalt layer). */
 const ROAD_Y = 0.16;
 /** Beacon flashes per second (alternating left/right). */
 const FLASH_RATE = 3;
+const INITIAL_CAPACITY = 64;
 
 const BEACON_ON = new THREE.Color(0x3d8bff);
 const BEACON_OFF = new THREE.Color(0x1a2a44);
 
-interface VehicleMesh {
-  body: THREE.Mesh;
-  beacons: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>[];
+/** Instanced meshes for one vehicle model; grown on demand. */
+interface ModelBatch {
+  model: VehicleModelGeometry;
+  paint: THREE.InstancedMesh;
+  fixed: THREE.InstancedMesh;
+  capacity: number;
 }
 
 /**
- * Draws vehicles as low-poly meshes. Each model/colour combination gets one
- * merged geometry; poses are interpolated between simulation ticks. Service
- * vehicles get flashing beacons.
+ * Draws every vehicle with a few instanced meshes (one pair per model plus
+ * one for all beacons), so hundreds of vehicles cost a handful of draw
+ * calls. Poses are interpolated between simulation ticks.
  */
 export class VehiclesView {
   readonly group = new THREE.Group();
-  private readonly meshes = new Map<VehicleId, VehicleMesh>();
-  private readonly models = new Map<string, VehicleModelGeometry>();
+  private readonly batches = new Map<VehicleModel, ModelBatch>();
+  private readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.15 });
   private readonly beaconGeometry = new THREE.BoxGeometry(0.42, 0.22, 0.3);
-  private readonly material = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.45,
-    metalness: 0.15,
-  });
+  private beacons: THREE.InstancedMesh;
+  private beaconCapacity = INITIAL_CAPACITY;
+
+  private readonly matrix = new THREE.Matrix4();
+  private readonly local = new THREE.Matrix4();
+  private readonly color = new THREE.Color();
+  private readonly position = new THREE.Vector3();
+  private readonly quaternion = new THREE.Quaternion();
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly one = new THREE.Vector3(1, 1, 1);
 
   constructor() {
     this.group.name = 'vehicles';
+    this.beacons = this.createBeacons(this.beaconCapacity);
   }
 
   update(vehicles: readonly Vehicle[], alpha: number, time: number): void {
-    const alive = new Set<VehicleId>();
     const flash = Math.floor(time * FLASH_RATE * 2) % 2;
+    const counts = new Map<VehicleModel, number>();
+    for (const v of vehicles) counts.set(v.model, (counts.get(v.model) ?? 0) + 1);
+    for (const [model, count] of counts) this.ensureCapacity(model, count);
+
+    const used = new Map<VehicleModel, number>();
+    let beaconCount = 0;
     for (const vehicle of vehicles) {
-      alive.add(vehicle.id);
-      const mesh = this.meshes.get(vehicle.id) ?? this.createMesh(vehicle);
+      const batch = this.batches.get(vehicle.model)!;
+      const i = used.get(vehicle.model) ?? 0;
+      used.set(vehicle.model, i + 1);
+
       const pose = interpolate(vehicle.prevPose, vehicle.pose, alpha);
-      mesh.body.position.set(pose.x, ROAD_Y, pose.z);
-      mesh.body.rotation.y = pose.yaw;
-      mesh.beacons.forEach((beacon, i) => {
-        beacon.material.color.copy(vehicle.sirens && i % 2 === flash ? BEACON_ON : BEACON_OFF);
+      this.position.set(pose.x, ROAD_Y, pose.z);
+      this.quaternion.setFromAxisAngle(this.up, pose.yaw);
+      this.matrix.compose(this.position, this.quaternion, this.one);
+      batch.paint.setMatrixAt(i, this.matrix);
+      batch.fixed.setMatrixAt(i, this.matrix);
+      batch.paint.setColorAt(i, this.color.setHex(vehicle.color));
+
+      batch.model.beacons.forEach((mount, k) => {
+        if (beaconCount >= this.beaconCapacity) this.growBeacons();
+        this.local.makeTranslation(mount.x, mount.y, mount.z);
+        this.beacons.setMatrixAt(beaconCount, this.local.premultiply(this.matrix));
+        this.beacons.setColorAt(beaconCount, vehicle.sirens && k % 2 === flash ? BEACON_ON : BEACON_OFF);
+        beaconCount++;
       });
     }
-    for (const [id, mesh] of this.meshes) {
-      if (alive.has(id)) continue;
-      this.group.remove(mesh.body);
-      mesh.beacons.forEach((b) => b.material.dispose());
-      this.meshes.delete(id);
+
+    for (const [model, batch] of this.batches) {
+      const count = used.get(model) ?? 0;
+      for (const mesh of [batch.paint, batch.fixed]) {
+        mesh.count = count;
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      if (batch.paint.instanceColor) batch.paint.instanceColor.needsUpdate = true;
     }
+    this.beacons.count = beaconCount;
+    this.beacons.instanceMatrix.needsUpdate = true;
+    if (this.beacons.instanceColor) this.beacons.instanceColor.needsUpdate = true;
   }
 
-  private createMesh(vehicle: Vehicle): VehicleMesh {
-    const model = this.modelFor(vehicle);
-    const body = new THREE.Mesh(model.geometry, this.material);
-    body.castShadow = true;
-    const beacons = model.beacons.map((mount) => {
-      const beacon = new THREE.Mesh(this.beaconGeometry, new THREE.MeshBasicMaterial({ color: BEACON_OFF }));
-      beacon.position.set(mount.x, mount.y, mount.z);
-      body.add(beacon);
-      return beacon;
-    });
-    const mesh = { body, beacons };
-    this.meshes.set(vehicle.id, mesh);
-    this.group.add(body);
+  private ensureCapacity(model: VehicleModel, count: number): void {
+    let batch = this.batches.get(model);
+    if (batch && batch.capacity >= count) return;
+    const capacity = Math.max(INITIAL_CAPACITY, batch ? batch.capacity * 2 : 0, count);
+    if (batch) {
+      this.group.remove(batch.paint, batch.fixed);
+      batch.paint.dispose();
+      batch.fixed.dispose();
+    }
+    const geometry = batch?.model ?? buildVehicleModel(model, VEHICLE_DIMENSIONS[model].length, VEHICLE_DIMENSIONS[model].width);
+    batch = {
+      model: geometry,
+      paint: this.instanced(geometry.paint, capacity),
+      fixed: this.instanced(geometry.fixed, capacity),
+      capacity,
+    };
+    // Allocate the colour buffer up front so `instanceColor` exists from the start.
+    batch.paint.setColorAt(0, this.color.setHex(0xffffff));
+    this.batches.set(model, batch);
+    this.group.add(batch.paint, batch.fixed);
+  }
+
+  private instanced(geometry: THREE.BufferGeometry, capacity: number): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(geometry, this.material, capacity);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    mesh.count = 0;
     return mesh;
   }
 
-  private modelFor(vehicle: Vehicle): VehicleModelGeometry {
-    const key = `${vehicle.model}:${vehicle.color}`;
-    let model = this.models.get(key);
-    if (!model) {
-      model = buildVehicleModel(vehicle.model, vehicle.length, vehicle.width, new THREE.Color(vehicle.color));
-      this.models.set(key, model);
-    }
-    return model;
+  private createBeacons(capacity: number): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(this.beaconGeometry, new THREE.MeshBasicMaterial(), capacity);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.setColorAt(0, BEACON_OFF);
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  /** Doubles the beacon buffer, keeping instances already written this frame. */
+  private growBeacons(): void {
+    const old = this.beacons;
+    this.beaconCapacity *= 2;
+    this.beacons = this.createBeacons(this.beaconCapacity);
+    this.beacons.instanceMatrix.array.set(old.instanceMatrix.array);
+    if (old.instanceColor && this.beacons.instanceColor) this.beacons.instanceColor.array.set(old.instanceColor.array);
+    this.group.remove(old);
+    old.dispose();
   }
 }
 

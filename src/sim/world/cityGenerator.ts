@@ -6,13 +6,20 @@ import type { Bounds, City, RoadNetwork } from './types';
 
 const MAP_MARGIN = 45;
 
-export function generateCity(seed: number): City {
+export interface CityOptions {
+  /** Size factor: 1 is the original town, 10 is roughly ten times the streets and buildings. */
+  scale?: number;
+}
+
+export function generateCity(seed: number, options: CityOptions = {}): City {
+  const scale = options.scale ?? 1;
   const rng = createRng(seed);
-  const layout = generateRoadLayout(rng);
+  const layout = generateRoadLayout(rng, scale);
   const bounds = computeBounds(layout.network, MAP_MARGIN);
   const buildings = placeBuildings(rng, layout);
   return {
     seed,
+    scale,
     bounds,
     roads: layout.network,
     buildings,

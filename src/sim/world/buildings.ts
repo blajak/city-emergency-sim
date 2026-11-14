@@ -1,16 +1,19 @@
 import {
   type OBB,
-  distanceToPolyline,
   obbLocalToWorld,
   obbOverlap,
   pointInPolygon,
   samplePolyline,
 } from '../math/geometry';
 import type { Rng } from '../math/rng';
+import { SpatialGrid, obbBox } from '../math/spatialGrid';
 import { type Vec2, add, length, rightOf, scale } from '../math/vec2';
 import { FLOOR_HEIGHT, GROUND_FLOOR_HEIGHT, STREET_CLEARANCE } from './constants';
+import { RoadIndex } from './roadIndex';
 import type { CityLayout, StationSite } from './roadNetwork';
 import type { Building, BuildingKind, RoadEdge, RoofKind, Side } from './types';
+
+const BUILDING_CELL_SIZE = 32;
 
 /** Gap between the sidewalk edge and the facade. */
 const SETBACK = 0.4;
@@ -56,22 +59,23 @@ export function placeBuildings(rng: Rng, layout: CityLayout): Building[] {
   const buildings: Building[] = [];
   const maxRadius = Math.max(...network.nodes.map((n) => length(n.pos)));
 
+  const roads = new RoadIndex(network);
+  const placed = new SpatialGrid<Building>(BUILDING_CELL_SIZE);
+
   const isFree = (footprint: OBB): boolean => {
     for (const p of footprintProbePoints(footprint)) {
-      for (const edge of network.edges) {
-        if (distanceToPolyline(p, edge.points) < STREET_CLEARANCE + SETBACK * 0.5) return false;
-      }
+      if (roads.isNear(p, STREET_CLEARANCE + SETBACK * 0.5)) return false;
     }
     if (parks.some((park) => pointInPolygon(footprint.center, park.polygon))) return false;
     // Shrink slightly so neighbours in a terrace may touch.
     const shrunk = { ...footprint, halfW: footprint.halfW - 0.05, halfD: footprint.halfD - 0.05 };
-    return !buildings.some((b) => obbOverlap(shrunk, b.footprint));
+    return !placed.query(obbBox(shrunk)).some((b) => obbOverlap(shrunk, b.footprint));
   };
 
   const add = (spec: BuildingSpec, edge: RoadEdge, s: number, side: Side): boolean => {
     const footprint = frontageFootprint(edge, s, side, spec.width, spec.depth);
     if (!isFree(footprint)) return false;
-    buildings.push({
+    const building: Building = {
       id: buildings.length,
       kind: spec.kind,
       footprint,
@@ -81,7 +85,9 @@ export function placeBuildings(rng: Rng, layout: CityLayout): Building[] {
       roof: spec.roof,
       facadeColor: spec.facadeColor,
       address: { edgeId: edge.id, s, side },
-    });
+    };
+    buildings.push(building);
+    placed.insert(building, obbBox(footprint));
     return true;
   };
 

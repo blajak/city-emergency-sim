@@ -90,6 +90,8 @@ export interface Bounds {
 
 export interface City {
   seed: number;
+  /** Size factor the city was generated with (1 = original town). */
+  scale: number;
   bounds: Bounds;
   roads: RoadNetwork;
   buildings: Building[];

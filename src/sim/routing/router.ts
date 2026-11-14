@@ -1,4 +1,6 @@
+import { distance } from '../math/vec2';
 import type { LaneGraph, Segment, SegmentId } from '../traffic/laneGraph';
+import { MinHeap } from './minHeap';
 
 /** A position on the drivable network. */
 export interface RoutePoint {
@@ -14,59 +16,103 @@ export interface Route {
   distance: number;
 }
 
+interface CachedPath {
+  /** Segments strictly between the start and the target segment. */
+  middle: SegmentId[];
+  time: number;
+  distance: number;
+}
+
 /**
- * Fastest route between two points (Dijkstra over segments, weighted by
- * free-flow travel time). The graph is small (~300 segments), so a simple
- * O(n²) search is plenty.
+ * Fastest routes over the lane graph (A* weighted by free-flow travel time,
+ * with a straight-line heuristic). The best path between two segments does
+ * not depend on the positions within them, so paths are cached per
+ * (start segment, target segment) pair.
  */
-export function findRoute(graph: LaneGraph, from: RoutePoint, to: RoutePoint): Route | null {
-  const start = graph.segments[from.segment];
-  const travel = (seg: Segment, length: number) => length / seg.speedLimit;
+export class Router {
+  private readonly cache = new Map<string, CachedPath | null>();
+  private readonly maxSpeed: number;
 
-  if (from.segment === to.segment && to.s >= from.s - 0.5) {
-    const d = Math.max(0, to.s - from.s);
-    return { segments: [from.segment], time: travel(start, d), distance: d };
+  constructor(private readonly graph: LaneGraph) {
+    this.maxSpeed = Math.max(...graph.segments.map((s) => s.speedLimit));
   }
 
-  // Cost to reach the END of each segment.
-  const time = new Map<SegmentId, number>([[start.id, travel(start, start.length - from.s)]]);
-  const dist = new Map<SegmentId, number>([[start.id, start.length - from.s]]);
-  const previous = new Map<SegmentId, SegmentId>();
-  const done = new Set<SegmentId>();
-  let best: { time: number; distance: number; via: SegmentId } | null = null;
+  /** Forget cached paths (call when roads open or close). */
+  clearCache(): void {
+    this.cache.clear();
+  }
 
-  for (;;) {
-    let current: SegmentId | null = null;
-    for (const [id, t] of time) {
-      if (!done.has(id) && (current === null || t < time.get(current)!)) current = id;
+  find(from: RoutePoint, to: RoutePoint): Route | null {
+    const start = this.graph.segments[from.segment];
+    const target = this.graph.segments[to.segment];
+    const travel = (seg: Segment, length: number) => length / seg.speedLimit;
+
+    if (from.segment === to.segment && to.s >= from.s - 0.5) {
+      const d = Math.max(0, to.s - from.s);
+      return { segments: [from.segment], time: travel(start, d), distance: d };
     }
-    if (current === null) break;
-    const tCurrent = time.get(current)!;
-    if (best && tCurrent >= best.time) break;
-    done.add(current);
 
-    for (const nextId of successors(graph.segments[current])) {
-      const next = graph.segments[nextId];
-      if (nextId === to.segment) {
-        const tTarget = tCurrent + travel(next, to.s);
-        if (!best || tTarget < best.time) best = { time: tTarget, distance: dist.get(current)! + to.s, via: current };
-      }
-      const t = tCurrent + travel(next, next.length);
-      if (!done.has(nextId) && (!time.has(nextId) || t < time.get(nextId)!)) {
-        time.set(nextId, t);
-        dist.set(nextId, dist.get(current)! + next.length);
-        previous.set(nextId, current);
+    const key = `${from.segment}>${to.segment}`;
+    let path = this.cache.get(key);
+    if (path === undefined) {
+      path = this.search(start, target);
+      this.cache.set(key, path);
+    }
+    if (!path) return null;
+
+    const head = start.length - from.s;
+    return {
+      segments: [from.segment, ...path.middle, to.segment],
+      time: travel(start, head) + path.time + travel(target, to.s),
+      distance: head + path.distance + to.s,
+    };
+  }
+
+  /** A* from the end of `start` to the beginning of `target`. */
+  private search(start: Segment, target: Segment): CachedPath | null {
+    const goal = target.points[0];
+    const heuristic = (seg: Segment) => distance(seg.points[seg.points.length - 1], goal) / this.maxSpeed;
+
+    // Cost to reach the END of a segment (excluding the start segment itself).
+    const cost = new Map<SegmentId, number>([[start.id, 0]]);
+    const previous = new Map<SegmentId, SegmentId>();
+    const closed = new Set<SegmentId>();
+    const open = new MinHeap<SegmentId>();
+    open.push(start.id, heuristic(start));
+
+    while (open.size > 0) {
+      const id = open.pop()!;
+      if (closed.has(id)) continue;
+      closed.add(id);
+      const seg = this.graph.segments[id];
+      const base = cost.get(id)!;
+
+      for (const nextId of successors(seg)) {
+        if (nextId === target.id) return this.unwind(start.id, id, previous, base);
+        const next = this.graph.segments[nextId];
+        const c = base + next.length / next.speedLimit;
+        if (closed.has(nextId) || c >= (cost.get(nextId) ?? Infinity)) continue;
+        cost.set(nextId, c);
+        previous.set(nextId, id);
+        open.push(nextId, c + heuristic(next));
       }
     }
+    return null;
   }
 
-  if (!best) return null;
-  const segments = [to.segment];
-  for (let id: SegmentId | undefined = best.via; id !== undefined; id = previous.get(id)) {
-    segments.unshift(id);
-    if (id === start.id) break;
+  /**
+   * Reaching the target is detected when it is a successor of `last`; with a
+   * consistent heuristic the first such `last` popped is on an optimal path.
+   */
+  private unwind(startId: SegmentId, last: SegmentId, previous: Map<SegmentId, SegmentId>, time: number): CachedPath {
+    const middle: SegmentId[] = [];
+    let dist = 0;
+    for (let id: SegmentId | undefined = last; id !== undefined && id !== startId; id = previous.get(id)) {
+      middle.unshift(id);
+      dist += this.graph.segments[id].length;
+    }
+    return { middle, time, distance: dist };
   }
-  return { segments, time: best.time, distance: best.distance };
 }
 
 function successors(seg: Segment): SegmentId[] {
