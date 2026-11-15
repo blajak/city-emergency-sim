@@ -3,6 +3,7 @@ import type { City } from '../sim/world/types';
 import { createBuildingsView } from './buildingsView';
 import { createGroundView, createLampsView, createTreesView } from './decorView';
 import { createRoadsView } from './roadsView';
+import { createTransitView } from './transitView';
 
 /** Static scenery for a generated city. */
 export function createCityView(city: City): THREE.Group {
@@ -14,6 +15,7 @@ export function createCityView(city: City): THREE.Group {
     createBuildingsView(city.buildings),
     createTreesView(city.trees),
     createLampsView(city.lamps),
+    createTransitView(city),
   );
   return group;
 }

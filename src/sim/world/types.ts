@@ -70,6 +70,7 @@ export type BuildingKind =
   | 'container_yard'
   | 'waste_depot'
   | 'power_plant'
+  | 'bus_depot'
   // railway
   | 'train_station'
   | 'freight_hub'
@@ -147,6 +148,60 @@ export interface Bounds {
   maxZ: number;
 }
 
+export type BusStopId = number;
+
+/** Where buses stop on one side of a street. */
+export interface BusStop {
+  id: BusStopId;
+  name: string;
+  edgeId: EdgeId;
+  /** Kerb side; buses on the lane running along this side stop here. */
+  side: Side;
+  /** Centre of the stopping place along the edge centre line. */
+  s: number;
+  /** Length of the stopping place (bay or kerb marking). */
+  length: number;
+  /** Lay-by cut into the sidewalk; otherwise buses stop in the lane. */
+  bay: boolean;
+}
+
+/** One step of a bus route: an edge driven in one direction. */
+export interface RouteStep {
+  edgeId: EdgeId;
+  /** true when driving from edge.from to edge.to. */
+  forward: boolean;
+}
+
+export interface BusStopCall {
+  stop: BusStopId;
+  /** Index into the line's `route` of the step the stop is on. */
+  step: number;
+}
+
+export interface BusLine {
+  id: number;
+  /** Line number shown to people ("1"). */
+  name: string;
+  color: number;
+  /**
+   * Closed loop of edges: outbound to the far terminus, a turning loop around a
+   * block, back to the home terminus and another turning loop. Starts at the
+   * home terminus stop's street.
+   */
+  route: RouteStep[];
+  /** Stops in the order served along `route`; the first is the home terminus. */
+  calls: BusStopCall[];
+  /** Index in `calls` of the far terminus. */
+  turnCall: number;
+}
+
+export interface TransitPlan {
+  /** Bus depot building, or null when the city has no room for one. */
+  depot: BuildingId | null;
+  stops: BusStop[];
+  lines: BusLine[];
+}
+
 export interface City {
   seed: number;
   /** Size factor the city was generated with (1 = original town). */
@@ -156,6 +211,7 @@ export interface City {
   districts: District[];
   rail: RailPlan;
   buildings: Building[];
+  transit: TransitPlan;
   parks: Park[];
   trees: TreeSpot[];
   lamps: LampSpot[];

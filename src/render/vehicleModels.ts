@@ -10,6 +10,9 @@ const BUMPER = new THREE.Color(0x3a3d40);
 const WHITE = new THREE.Color(0xf4f4f0);
 const STEEL = new THREE.Color(0xaeb4ba);
 const POLICE_BLUE = new THREE.Color(0x1f4fa3);
+const DISPLAY = new THREE.Color(0x1b1b1b);
+const DISPLAY_TEXT = new THREE.Color(0xffb300);
+const DOOR = new THREE.Color(0x1e2a33);
 
 /** Where flashing beacons sit on a model (local coordinates, front = +z). */
 export interface BeaconMount {
@@ -102,6 +105,22 @@ export function buildVehicleModel(model: VehicleModel, length: number, width: nu
       box(0, cabFront - 0.02, hw - 0.12, 0.05, 1.15, 1.95, GLASS);
       box(0, cabFront - 0.6, hw + 0.01, 0.45, 1.2, 1.85, GLASS);
       lights(0.7);
+      break;
+    }
+    case 'bus': {
+      // Low-floor city bus: painted body in the line colour, long window band,
+      // white roof with an air-con unit, destination display and two doors on the kerb side (-x).
+      wheels(0.52, [hl - 2.6, -hl + 3.1]);
+      box(0, 0, hw, hl, 0.3, 2.95, paint);
+      box(0, 0.2, hw + 0.01, hl - 0.9, 1.15, 2.5, GLASS);
+      box(0, hl + 0.01, hw - 0.12, 0.02, 0.95, 2.55, GLASS);
+      box(0, -hl - 0.01, hw - 0.25, 0.02, 1.5, 2.45, GLASS);
+      box(0, 0, hw - 0.02, hl - 0.02, 2.95, 3.05, WHITE);
+      box(0, -hl * 0.35, hw * 0.6, 1.2, 3.05, 3.35, WHITE);
+      box(0, hl + 0.03, hw - 0.3, 0.03, 2.62, 2.88, DISPLAY);
+      box(0, hl + 0.05, hw - 0.6, 0.02, 2.68, 2.82, DISPLAY_TEXT);
+      for (const z of [hl - 1.35, -0.6]) box(-hw - 0.02, z, 0.02, 0.6, 0.35, 2.5, DOOR);
+      lights(0.55);
       break;
     }
     case 'sedan':

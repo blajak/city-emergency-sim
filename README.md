@@ -40,6 +40,11 @@ pass, and it works the scene before heading back.
   the other side. A freight train shuttles between the freight hub and the Dockside
   terminal. Level crossings close with flashing lights and barriers; cars wait, never
   stop on the tracks, and trains only pass a crossing that is closed and clear.
+- **Buses.** Three lines with fixed routes, stops about every 300 m and a simple timetable.
+  Stops have a bay where the kerb is free; in the old town buses stop in the lane and cars
+  drive around them when the opposite lane is clear. Buses pull out of the depot yard,
+  join traffic, and go back to park there after their shift. Click a bus or a stop for its
+  line, next stops and next departures.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
 

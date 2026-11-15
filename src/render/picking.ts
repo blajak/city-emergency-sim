@@ -7,6 +7,27 @@ const localRay = new THREE.Ray();
 const rotation = new THREE.Matrix4();
 const hit = new THREE.Vector3();
 
+/**
+ * Distance along the ray to an upright oriented box standing on the ground
+ * (rotation as Three.js `rotation.y`, local x = width), or null on a miss.
+ */
+export function rayBoxDistance(
+  ray: THREE.Ray,
+  cx: number,
+  cz: number,
+  rot: number,
+  halfW: number,
+  halfD: number,
+  height: number,
+): number | null {
+  rotation.makeRotationY(-rot);
+  localRay.origin.set(ray.origin.x - cx, ray.origin.y, ray.origin.z - cz).applyMatrix4(rotation);
+  localRay.direction.copy(ray.direction).applyMatrix4(rotation);
+  box.min.set(-halfW, 0, -halfD);
+  box.max.set(halfW, height, halfD);
+  return localRay.intersectBox(box, hit) ? hit.distanceTo(localRay.origin) : null;
+}
+
 /** Nearest building hit by the ray (tests each footprint as an oriented box). */
 export function pickBuilding(ray: THREE.Ray, buildings: readonly Building[]): Building | null {
   let best: Building | null = null;

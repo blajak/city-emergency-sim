@@ -148,7 +148,17 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    within 18 s; trains only pass a closed crossing with nobody on it; cars never stop on
    the tracks. Small cities (scale 1) have the passenger line but no stations or freight.
    Also fixed: left turns no longer wait forever for a stopped oncoming car.
-4. **Buses**: lines, stops, bays, depot, timetable.
+4. ✅ **Buses**: three lines (W→E along the railway street past both stations, N→S through
+   the old town, NW→SE past the hospital and mall to the industrial south-east), each a loop
+   with turning loops at the termini; stops ~300 m apart, shared between lines, with a bay
+   where the kerb is free and in-lane stops in the old town. Timetable: fleet sized for a
+   ~5 min headway (max 4 per line), layover at the home terminus, 3-round-trip shifts.
+   Depot with a yard: buses drive out of their stall, through the gate into the depot bay
+   and merge into traffic; returning buses park back in a free stall. Small towns have no
+   depot (buses stay in service). Cars overtake a bus halted in the lane only with room to
+   pull back in and the opposite lane (and its entries) clear; oncoming traffic brakes for
+   an overtaker. Buses yield to responders (pulling further right, left edge aligned with
+   cars). Click a bus or stop for a card with next stops / departures.
 5. **Logistics**: articulated trucks with deliveries, garbage trucks with collection routes.
 6. **Power grid and night**: plant, substations, power lines, blackout card,
    fire-triggered blackout, utility crew repairs, day/night switch, dark districts

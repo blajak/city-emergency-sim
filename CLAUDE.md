@@ -18,13 +18,9 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 ## Status
 
 - v1 (SPEC.md): all 7 milestones done.
-- v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–3 done
-  (performance foundation, city generator v2, railway).
-- **Next: milestone 4 — Buses** (see SPEC-v2.md): 2–3 lines with fixed routes, stops
-  and a timetable, start/end at a bus depot; stops get a bus bay where there is room,
-  otherwise the bus stops in the lane (traffic waits or overtakes when the opposite
-  lane is clear); buses yield to emergency vehicles like other traffic.
-- Then: 5 logistics (articulated trucks to delivery bays, garbage trucks), 6 power grid
+- v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–4 done
+  (performance foundation, city generator v2, railway, buses).
+- **Next: milestone 5** logistics (articulated trucks to delivery bays, garbage trucks), 6 power grid
   + day/night switch + utility crew, 7 integration & polish (incident priorities,
   crossing-aware routing for emergency units, vehicle info card + follow camera,
   "city pulse" panel, README/GIF update). Details and user decisions are in SPEC-v2.md.
@@ -43,6 +39,8 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   - `routing/router.ts` A* with heap + per-segment-pair cache.
   - `signals/`, `rail/` (`railSystem.ts` trains + crossing controller, `crossings.ts`),
     `dispatch/` (dispatcher, units, incidents, curb spots).
+  - `world/transit.ts` plans bus lines/stops (`City.transit`), `world/depotYard.ts` the depot
+    stalls; `transit/busSystem.ts` runs buses (timetable, stops, depot yard moves).
 - `render/` — Three.js views reading sim state (merged geometry via `GeometryBuilder`,
   instancing for vehicles/trees/sleepers, sign texture atlas in `buildingKinds.ts`).
 - `ui/` — dispatcher panel, station card, interaction (picking), toasts, debug overlay.
@@ -61,6 +59,13 @@ Traffic safety took many iterations; stress tests found each of these:
 - Level crossings: vehicles stop at the barrier unless clearly past it (`stopS + 0.5`);
   never enter the tracks without room beyond (only vehicles *ahead* count).
 - Left turns don't wait for an oncoming car that is stopped without a reservation.
+- Buses: a car overtakes a halted bus only with room to pull back in before STOP_ZONE and the
+  opposite lane + its entries clear; oncoming vehicles brake for it. A halted bus never leaves
+  while overtaken. Vehicles heading for a kerb spot taken by a bus wait behind it in the lane
+  (the bus may merge past them). No merging from the kerb next to a long vehicle's tail.
+  Yielding long vehicles stay pulled over until their tail leaves the lane.
+- Known (pre-existing, not bus-related): the busy centre junction of seed 7/99 at scale 10 can
+  hold a unit > 60 s or cars > 120 s under 300 cars.
 
 ## How to verify changes
 

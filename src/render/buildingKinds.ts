@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Rng } from '../sim/math/rng';
 import { BAY_WIDTH, FLOOR_HEIGHT } from '../sim/world/constants';
+import { depotYard } from '../sim/world/depotYard';
 import type { Building } from '../sim/world/types';
 import { type Builders, ROOF_GREY, ROOF_TILES, addCornice, addRoofClutter, color, frameOf, shade } from './buildingParts';
 import { type FacadeUv, Frame, type GeometryBuilder, type V3, addBox, addFacing, addFlatRect, addGableRoof, addLathe } from './geometryBuilder';
@@ -33,6 +34,7 @@ export const SIGN_STYLES: SignStyle[] = [
   { text: 'CENTRAL STATION', background: '#1f3a5f', foreground: '#ffffff' },
   { text: 'FREIGHT HUB', background: '#37474f', foreground: '#ffca28' },
   { text: 'FREIGHT TERMINAL', background: '#37474f', foreground: '#ffca28' },
+  { text: 'BUS DEPOT', background: '#1e6fd0', foreground: '#ffffff' },
 ];
 
 const GLASS = color(0x5d7a8c);
@@ -81,6 +83,8 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addWasteDepot(builders, b, rng);
     case 'power_plant':
       return addPowerPlant(builders, b);
+    case 'bus_depot':
+      return addBusDepot(builders, b);
     case 'train_station':
       return addTrainStation(builders, b);
     case 'freight_hub':
@@ -344,6 +348,30 @@ function addWasteDepot(builders: Builders, b: Building, rng: Rng): void {
   // Fence along the street.
   box(builders.solid, frame, 0, plot.halfD - 0.3, plot.halfW - 6, 0.05, 0, 2, color(0x6f7a6c));
   sign(builders, frame, 'RECYCLING', 7, b.height - 1.5, oz + halfD + 0.1);
+}
+
+/** Bus garage at the back of the plot, open yard with parked buses in front. */
+function addBusDepot(builders: Builders, b: Building): void {
+  const frame = plotFrame(b);
+  const plot = b.plot!;
+  const oz = footprintOffset(b);
+  const { halfW, halfD } = b.footprint;
+  addFlatRect(builders.solid, frame, 0, 0, plot.halfW, plot.halfD, 0.06, ASPHALT);
+  // Hall with a shallow roof band and tall doors facing the yard.
+  box(builders.solid, frame, 0, oz, halfW, halfD, 0, b.height, color(b.facadeColor), color(ROOF_GREY));
+  box(builders.solid, frame, 0, oz, halfW + 0.04, halfD + 0.04, b.height - 1.4, b.height - 0.6, GLASS);
+  const doors = Math.max(3, Math.floor((halfW * 2) / 5.5));
+  for (let i = 0; i < doors; i++) {
+    const x = -halfW + ((i + 0.5) * halfW * 2) / doors;
+    box(builders.solid, frame, x, oz + halfD + 0.05, 1.8, 0.06, 0, 4.4, color(0x5f6b74));
+  }
+  sign(builders, frame, 'BUS DEPOT', 8, b.height - 2.4, oz + halfD + 0.1);
+  // Stall lines; the buses parked there are simulated (sim/transit).
+  const yard = depotYard(b);
+  if (!yard) return;
+  for (const stall of yard.stalls) {
+    for (const dx of [-1.9, 1.9]) addFlatRect(builders.solid, frame, stall.x + dx, yard.zStall, 0.06, 5.8, 0.08, LINE);
+  }
 }
 
 function addPowerPlant(builders: Builders, b: Building): void {

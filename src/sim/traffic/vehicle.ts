@@ -1,10 +1,11 @@
 import type { RoutePoint } from '../routing/router';
 import type { DriverParams } from './idm';
+import { BUS_LENGTH, BUS_WIDTH } from '../world/constants';
 import type { SegmentId } from './laneGraph';
 
 export type VehicleId = number;
-export type VehicleModel = 'sedan' | 'hatchback' | 'van' | 'fire_engine' | 'police_car';
-export type VehicleRole = 'civilian' | 'fire' | 'police';
+export type VehicleModel = 'sedan' | 'hatchback' | 'van' | 'fire_engine' | 'police_car' | 'bus';
+export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus';
 
 /**
  * - driving: normal traffic participant
@@ -26,6 +27,7 @@ export const VEHICLE_DIMENSIONS: Record<VehicleModel, VehicleDimensions> = {
   van: { length: 5.2, width: 2.0 },
   fire_engine: { length: 8.2, width: 2.5 },
   police_car: { length: 4.8, width: 1.9 },
+  bus: { length: BUS_LENGTH, width: BUS_WIDTH },
 };
 
 /** Position of the vehicle body centre and heading (Three.js rotation.y). */
@@ -75,6 +77,15 @@ export interface Vehicle {
   /** stop: pull over and wait; hold: stay pulled over but drive on (the other vehicle has stopped). */
   yieldMode: 'stop' | 'hold';
   odometer: number;
+
+  /** The destination is a stop in the lane (bus stop without a bay): stay in traffic there. */
+  stopInLane: boolean;
+  /** Standing at an in-lane stop (still `driving`, so traffic queues behind it). */
+  halted: boolean;
+  /** Halted bus this vehicle is driving around through the opposite lane. */
+  overtaking: VehicleId | null;
+  /** Bus this vehicle waits behind in the lane until it leaves the kerb spot it is heading to. */
+  waitingForKerb: VehicleId | null;
 
   pose: Pose;
   /** Pose at the previous tick, for render interpolation. */

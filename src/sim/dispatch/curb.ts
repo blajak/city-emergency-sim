@@ -1,7 +1,7 @@
 import { projectOnPolyline, samplePolyline } from '../math/geometry';
 import type { RoutePoint } from '../routing/router';
 import type { Lane, LaneGraph } from '../traffic/laneGraph';
-import type { Building, RoadNetwork } from '../world/types';
+import type { Building, EdgeId, RoadNetwork, Side } from '../world/types';
 
 /** Keep parked vehicles away from the stop line / signal pole at the lane end. */
 const LANE_END_MARGIN = 6;
@@ -35,4 +35,20 @@ export function curbStop(
 
 export function clampToLane(lane: Lane, s: number, vehicleLength: number): number {
   return Math.min(lane.length - LANE_END_MARGIN, Math.max(vehicleLength + 1, s));
+}
+
+/** Stop at a kerb position (`s` along the edge centre line marks the middle of the vehicle). */
+export function kerbPoint(
+  graph: LaneGraph,
+  network: RoadNetwork,
+  edgeId: EdgeId,
+  side: Side,
+  s: number,
+  vehicleLength: number,
+): RoutePoint {
+  const lane = graph.lanes.find((l) => l.edgeId === edgeId && l.forward === (side === 1));
+  if (!lane) throw new Error(`No lane on edge ${edgeId}`);
+  const anchor = samplePolyline(network.edges[edgeId].points, s).point;
+  const front = projectOnPolyline(lane.points, anchor) + vehicleLength / 2;
+  return { segment: lane.id, s: clampToLane(lane, front, vehicleLength) };
 }

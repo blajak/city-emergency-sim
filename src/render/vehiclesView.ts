@@ -8,6 +8,9 @@ const ROAD_Y = 0.16;
 const FLASH_RATE = 3;
 const INITIAL_CAPACITY = 64;
 
+/** What the view needs from a vehicle (road traffic or a bus moving in the depot yard). */
+export type RenderVehicle = Pick<Vehicle, 'model' | 'color' | 'pose' | 'prevPose' | 'sirens'>;
+
 const BEACON_ON = new THREE.Color(0x3d8bff);
 const BEACON_OFF = new THREE.Color(0x1a2a44);
 
@@ -45,7 +48,7 @@ export class VehiclesView {
     this.beacons = this.createBeacons(this.beaconCapacity);
   }
 
-  update(vehicles: readonly Vehicle[], alpha: number, time: number): void {
+  update(vehicles: readonly RenderVehicle[], alpha: number, time: number): void {
     const flash = Math.floor(time * FLASH_RATE * 2) % 2;
     const counts = new Map<VehicleModel, number>();
     for (const v of vehicles) counts.set(v.model, (counts.get(v.model) ?? 0) + 1);

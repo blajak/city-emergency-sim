@@ -4,6 +4,7 @@ import { placeLamps, placeTrees } from './decor';
 import { planDistricts } from './districts';
 import { planRail } from './rail';
 import { generateRoadLayout } from './roadNetwork';
+import { planTransit } from './transit';
 import type { Bounds, City, RoadNetwork } from './types';
 
 const MAP_MARGIN = 45;
@@ -21,6 +22,7 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
   const districts = planDistricts(rng, bounds, scale);
   const rail = planRail(layout, bounds);
   const buildings = placeBuildings(rng, layout, districts, scale, rail);
+  const transit = planTransit(layout, districts, buildings, rail);
   return {
     seed,
     scale,
@@ -29,9 +31,10 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
     districts,
     rail,
     buildings,
+    transit,
     parks: layout.parks,
     trees: placeTrees(rng, bounds, layout.network, buildings, layout.parks, rail),
-    lamps: placeLamps(layout.network, buildings, rail),
+    lamps: placeLamps(layout.network, buildings, rail, transit.stops),
   };
 }
 

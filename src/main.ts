@@ -12,6 +12,7 @@ import { generateCity } from './sim/world/cityGenerator';
 import { DebugOverlay } from './ui/debugOverlay';
 import { DispatchPanel } from './ui/dispatchPanel';
 import { BuildingInteraction } from './ui/interaction';
+import { BusCard } from './ui/busCard';
 import { StationCard } from './ui/stationCard';
 import { Toast } from './ui/toast';
 
@@ -40,6 +41,7 @@ const railView = new RailView(city, sim.rail);
 const hud = requireElement('hud');
 const toast = new Toast(hud);
 const stationCard = new StationCard(hud, sim, (message, tone) => toast.show(message, tone));
+const busCard = new BusCard(hud, sim);
 const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera, sim, {
   onReport(type, building) {
     const result = sim.reportIncident(type, building.id);
@@ -49,13 +51,30 @@ const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera,
     }
   },
   onRejected: (message) => toast.show(message, 'error'),
-  onStation: (building, screen) => stationCard.open(building, screen),
-  onEmptyClick: () => stationCard.close(),
+  onStation: (building, screen) => {
+    busCard.close();
+    stationCard.open(building, screen);
+  },
+  onBus: (bus, screen) => {
+    stationCard.close();
+    busCard.openBus(bus, screen);
+  },
+  onStop: (stop, screen) => {
+    stationCard.close();
+    busCard.openStop(stop, screen);
+  },
+  onEmptyClick: () => {
+    stationCard.close();
+    busCard.close();
+  },
 });
 const panel = new DispatchPanel(hud, sim, {
   onToolChange: (tool) => {
     interaction.setTool(tool);
-    if (tool) stationCard.close();
+    if (tool) {
+      stationCard.close();
+      busCard.close();
+    }
   },
 });
 
@@ -73,19 +92,21 @@ ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incid
 
 const debug = params.has('debug') ? new DebugOverlay(hud, sim, ctx.renderer) : null;
 
-ctx.start((dt) => {
+function frame(dt: number): void {
   debug?.update(dt * 1000);
   const alpha = sim.advance(dt);
-  vehiclesView.update(sim.traffic.vehicles, alpha, sim.time);
+  vehiclesView.update([...sim.traffic.vehicles, ...sim.buses.yard], alpha, sim.time);
   signalsView.update();
   railView.update(alpha, sim.time);
   incidentsView.update(sim.dispatcher, sim.time);
   labelsView.update(ctx.camera, ctx.controls.target);
   panel.render();
   stationCard.render();
-});
+  busCard.render();
+}
+ctx.start(frame);
 
 if (import.meta.env.DEV) {
   // Handy for poking at the scene from the browser console.
-  Object.assign(window, { __sim: { city, sim, ctx } });
+  Object.assign(window, { __sim: { city, sim, ctx, frame } });
 }

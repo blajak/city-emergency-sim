@@ -6,7 +6,7 @@ import type { Rng } from '../math/rng';
 import { SpatialGrid, around, obbBox } from '../math/spatialGrid';
 import { RoadIndex } from './roadIndex';
 import { STREET_CLEARANCE } from './constants';
-import type { Bounds, Building, LampSpot, Park, RoadNetwork, TreeSpot } from './types';
+import type { Bounds, Building, BusStop, LampSpot, Park, RoadNetwork, TreeSpot } from './types';
 
 const TREE_GRID = 6;
 const LAMP_SPACING = 28;
@@ -55,8 +55,9 @@ export function placeTrees(
   return trees;
 }
 
-export function placeLamps(roads: RoadNetwork, buildings: Building[], rail: RailPlan): LampSpot[] {
-  const bays = buildings.flatMap((b) => (b.bay ? [b.bay] : []));
+export function placeLamps(roads: RoadNetwork, buildings: Building[], rail: RailPlan, stops: readonly BusStop[] = []): LampSpot[] {
+  // Keep lay-bys and bus stops (shelter, sign) free of lamp posts.
+  const bays = [...buildings.flatMap((b) => (b.bay ? [b.bay] : [])), ...stops.map((stop) => ({ ...stop, length: stop.length + 14 }))];
   const lamps: LampSpot[] = [];
   const buildingGrid = buildingIndex(buildings);
   for (const edge of roads.edges) {

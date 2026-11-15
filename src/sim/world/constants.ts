@@ -14,3 +14,7 @@ export const BAY_WIDTH = 3.2;
 export const CROSSWALK_LENGTH = 3;
 /** Gap between the crosswalk and the stop line. */
 export const STOP_LINE_GAP = 1.2;
+
+/** City bus (solo, 11 m). */
+export const BUS_LENGTH = 11;
+export const BUS_WIDTH = 2.55;

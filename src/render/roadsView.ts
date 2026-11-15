@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { subPolyline } from '../sim/math/geometry';
+import { samplePolyline, subPolyline } from '../sim/math/geometry';
 import { type Vec2, add, normalize, rightOf, scale, sub, vec2 } from '../sim/math/vec2';
 import { CROSSWALK_LENGTH, LANE_WIDTH, ROAD_WIDTH, STREET_CLEARANCE } from '../sim/world/constants';
 import { approachDistance } from '../sim/world/roadGeometry';
-import type { City, DeliveryBay, RoadEdge, RoadNode } from '../sim/world/types';
+import type { BusStop, City, DeliveryBay, RoadEdge, RoadNode } from '../sim/world/types';
 import { GeometryBuilder } from './geometryBuilder';
 
 /** Layer heights, low to high, so flat layers never z-fight. */
@@ -24,6 +24,7 @@ const COLORS = {
   asphalt: new THREE.Color(0x454a50),
   marking: new THREE.Color(0xf2f2ee),
   bayMarking: new THREE.Color(0xf2c230),
+  busMarking: new THREE.Color(0xf2f2ee),
   ballast: new THREE.Color(0x9a9183),
 };
 
@@ -56,6 +57,11 @@ export function createRoadsView(city: City): THREE.Mesh {
   for (const building of city.buildings) {
     if (building.bay) addBay(b, network.edges[building.bay.edgeId], building.bay);
   }
+  for (const stop of city.transit.stops) {
+    const edge = network.edges[stop.edgeId];
+    if (stop.bay) addBay(b, edge, stop, COLORS.busMarking);
+    else addLaneStop(b, edge, stop);
+  }
 
   const mesh = new THREE.Mesh(
     b.build(),
@@ -66,8 +72,8 @@ export function createRoadsView(city: City): THREE.Mesh {
   return mesh;
 }
 
-/** Delivery lay-by: asphalt cut into the sidewalk with a yellow outline. */
-function addBay(b: GeometryBuilder, edge: RoadEdge, bay: DeliveryBay): void {
+/** Lay-by: asphalt cut into the sidewalk with an outline (yellow for deliveries, white for buses). */
+function addBay(b: GeometryBuilder, edge: RoadEdge, bay: DeliveryBay | BusStop, marking = COLORS.bayMarking): void {
   const s0 = bay.s - bay.length / 2;
   const s1 = bay.s + bay.length / 2;
   const depth = STREET_CLEARANCE - ROAD_WIDTH / 2 - 0.3;
@@ -75,13 +81,27 @@ function addBay(b: GeometryBuilder, edge: RoadEdge, bay: DeliveryBay): void {
   const outer = bay.side * (ROAD_WIDTH / 2 + depth - 0.1);
   const strip = subPolyline(edge.points, s0, s1, 1);
   addRibbon(b, strip, depth / 2, Y.asphalt, COLORS.asphalt, middle);
-  addRibbon(b, strip, 0.08, Y.marking, COLORS.bayMarking, outer);
+  addRibbon(b, strip, 0.08, Y.marking, marking, outer);
   for (let s = s0; s + 1 <= s1; s += 2) {
-    addRibbon(b, subPolyline(edge.points, s, s + 1, 1), 0.08, Y.marking, COLORS.bayMarking, bay.side * (ROAD_WIDTH / 2 + 0.1));
+    addRibbon(b, subPolyline(edge.points, s, s + 1, 1), 0.08, Y.marking, marking, bay.side * (ROAD_WIDTH / 2 + 0.1));
   }
   for (const end of [s0, s1 - 0.16]) {
-    addRibbon(b, subPolyline(edge.points, end, end + 0.16, 1), depth / 2, Y.marking, COLORS.bayMarking, middle);
+    addRibbon(b, subPolyline(edge.points, end, end + 0.16, 1), depth / 2, Y.marking, marking, middle);
   }
+}
+
+/** Bus stop in the lane: a yellow zig-zag along the kerb. */
+function addLaneStop(b: GeometryBuilder, edge: RoadEdge, stop: BusStop): void {
+  const s0 = stop.s - stop.length / 2;
+  const n = Math.round(stop.length / 1.6);
+  const points: Vec2[] = [];
+  for (let i = 0; i <= n; i++) {
+    const s = s0 + (stop.length * i) / n;
+    const lateral = stop.side * (ROAD_WIDTH / 2 - (i % 2 === 0 ? 0.15 : 0.85));
+    const sample = samplePolyline(edge.points, s);
+    points.push(add(sample.point, scale(rightOf(sample.dir), lateral)));
+  }
+  for (let i = 0; i < points.length - 1; i++) addRibbon(b, [points[i], points[i + 1]], 0.07, Y.marking, COLORS.bayMarking);
 }
 
 function addMarkings(b: GeometryBuilder, edge: RoadEdge, from: RoadNode, to: RoadNode): void {

@@ -66,7 +66,8 @@ type SiteKind =
   | 'supermarket'
   | 'factory'
   | 'container_yard'
-  | 'waste_depot';
+  | 'waste_depot'
+  | 'bus_depot';
 
 interface SiteRule {
   districts: DistrictKind[];
@@ -94,11 +95,14 @@ const SITE_RULES: Record<SiteKind, SiteRule> = {
   factory: { districts: ['industrial'], count: (s) => Math.round(s * 0.7), prefer: 'random', main: [0.86, 0.58], height: 11, color: [0xb8b3a8, 0xa8b1b8, 0xb98a6e] },
   container_yard: { districts: ['industrial'], count: (s) => (s >= 3 ? Math.max(1, Math.round(s / 5)) : 0), prefer: 'east_edge', main: [0.16, 0.16], height: 4, color: [0xd9d4c6] },
   waste_depot: { districts: ['industrial'], count: (s) => (s >= 2 ? 1 : 0), prefer: 'map_edge', main: [0.5, 0.4], height: 9, color: [0x8f9a8a] },
+  // Close to the centre of the industrial area so buses reach their lines quickly.
+  bus_depot: { districts: ['industrial'], count: () => 1, prefer: 'map_center', main: [0.8, 0.32], height: 8, color: [0xc8ccd0] },
 };
 
 /** Placement order: rarest and most important first. */
 const SITE_ORDER: SiteKind[] = [
   'power_plant',
+  'bus_depot',
   'town_hall',
   'hospital',
   'stadium',
@@ -120,6 +124,8 @@ const BAY_LENGTH: Partial<Record<BuildingKind, number>> = {
   warehouse: 18,
   factory: 18,
   petrol_station: 14,
+  // Where buses leave and enter the depot.
+  bus_depot: 26,
 };
 
 // ---------------------------------------------------------------------------
