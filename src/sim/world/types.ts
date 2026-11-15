@@ -70,6 +70,8 @@ export type BuildingKind =
   | 'container_yard'
   | 'waste_depot'
   | 'power_plant'
+  | 'substation'
+  | 'utility_depot'
   | 'bus_depot'
   // railway
   | 'train_station'
@@ -202,6 +204,17 @@ export interface TransitPlan {
   lines: BusLine[];
 }
 
+/** Power network: the plant feeds one substation per district. */
+export interface PowerPlan {
+  plant: BuildingId | null;
+  /** Substation building per district (index = district id), null when none could be placed. */
+  substations: (BuildingId | null)[];
+  /** Power-company depot (next to the plant) with a driveway for the utility vans. */
+  depot: BuildingId | null;
+  /** Van parking spots on the depot driveway (= number of utility crews). */
+  depotSpots: number;
+}
+
 export interface City {
   seed: number;
   /** Size factor the city was generated with (1 = original town). */
@@ -212,6 +225,7 @@ export interface City {
   rail: RailPlan;
   buildings: Building[];
   transit: TransitPlan;
+  power: PowerPlan;
   parks: Park[];
   trees: TreeSpot[];
   lamps: LampSpot[];

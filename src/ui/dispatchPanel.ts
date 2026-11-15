@@ -10,6 +10,7 @@ const REFRESH_INTERVAL_MS = 200;
 
 export interface DispatchPanelCallbacks {
   onToolChange(tool: IncidentType | null): void;
+  onNightChange(night: boolean): void;
 }
 
 /** Right-hand dispatcher panel: time controls, report tools, incidents, units. */
@@ -20,7 +21,10 @@ export class DispatchPanel {
   private readonly unitsEl: HTMLElement;
   private readonly hintEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
+  private readonly powerEl: HTMLElement;
+  private readonly nightButton: HTMLButtonElement;
   private tool: IncidentType | null = null;
+  private night = false;
   private lastRender = 0;
 
   constructor(
@@ -36,7 +40,10 @@ export class DispatchPanel {
           <h2>Dispatch</h2>
           <p class="panel-sub">City Emergency Sim</p>
         </div>
-        <span class="clock" data-ref="clock">00:00</span>
+        <div class="header-right">
+          <button class="icon-button night-toggle" data-action="night" title="Day / night (N)" aria-label="Switch to night">☾</button>
+          <span class="clock" data-ref="clock">00:00</span>
+        </div>
       </header>
       <div class="segmented" role="group" aria-label="Simulation speed">
         <button data-speed="0" title="Pause (Space)">${ICONS.pause}<span>Pause</span></button>
@@ -59,6 +66,10 @@ export class DispatchPanel {
         <h3>Units <span class="count">click a station to add or remove</span></h3>
         <ul class="list" data-ref="units"></ul>
       </section>
+      <section class="panel-section">
+        <h3>Power <span class="count">click the power plant</span></h3>
+        <ul class="list" data-ref="power"></ul>
+      </section>
     `;
     container.appendChild(this.root);
     const ref = (name: string) => this.root.querySelector<HTMLElement>(`[data-ref="${name}"]`)!;
@@ -67,12 +78,15 @@ export class DispatchPanel {
     this.unitsEl = ref('units');
     this.hintEl = ref('hint');
     this.summaryEl = ref('summary');
+    this.powerEl = ref('power');
+    this.nightButton = this.root.querySelector<HTMLButtonElement>('[data-action="night"]')!;
 
     this.root.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest('button');
       if (!target || target.disabled) return;
       if (target.dataset.speed !== undefined) this.setSpeed(Number(target.dataset.speed) as TimeScale);
       if (target.dataset.tool) this.setTool(this.tool === target.dataset.tool ? null : (target.dataset.tool as IncidentType));
+      if (target.dataset.action === 'night') this.setNight(!this.night);
     });
     window.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -85,6 +99,9 @@ export class DispatchPanel {
           break;
         case 'c':
           this.setTool(this.tool === 'crime' ? null : 'crime');
+          break;
+        case 'n':
+          this.setNight(!this.night);
           break;
         case '1':
           this.setSpeed(1);
@@ -112,6 +129,14 @@ export class DispatchPanel {
     this.hintEl.hidden = tool === null;
     if (tool) this.hintEl.textContent = `Click a building to report a ${INCIDENT_NAME[tool].toLowerCase()}. Esc to cancel.`;
     this.callbacks.onToolChange(tool);
+  }
+
+  setNight(night: boolean): void {
+    this.night = night;
+    this.nightButton.textContent = night ? '☀' : '☾';
+    this.nightButton.setAttribute('aria-label', night ? 'Switch to day' : 'Switch to night');
+    this.nightButton.classList.toggle('active', night);
+    this.callbacks.onNightChange(night);
   }
 
   private setSpeed(scale: TimeScale): void {
@@ -143,6 +168,32 @@ export class DispatchPanel {
       [...active, ...resolved].map((i) => this.incidentItem(i)).join('') ||
       `<li class="empty">No incidents. Pick a tool above and click a building.</li>`;
     this.unitsEl.innerHTML = dispatcher.units.map((u) => this.unitItem(u)).join('');
+    this.powerEl.innerHTML = this.powerItems();
+  }
+
+  private powerItems(): string {
+    const { power, city } = this.sim;
+    const off = power.districts.filter((d) => !d.on);
+    if (off.length === 0) return `<li class="empty">All districts have power.</li>`;
+    return off
+      .map((d) => {
+        const crew = d.crew;
+        const detail = crew
+          ? `${crew.name} · ${crew.status === 'repairing' ? 'repairing' : 'on the way'}`
+          : d.cause === 'fire'
+            ? 'Fire at the power plant'
+            : 'Switched off';
+        return `
+          <li class="item power-item">
+            <span class="item-icon">⚡</span>
+            <div class="item-body">
+              <div class="item-row"><strong>${city.districts[d.district].name}</strong></div>
+              <div class="item-row muted"><span>${detail}</span></div>
+            </div>
+            <span class="chip tone-active">Blackout</span>
+          </li>`;
+      })
+      .join('');
   }
 
   private incidentItem(incident: Incident): string {

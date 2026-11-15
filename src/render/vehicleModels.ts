@@ -17,6 +17,7 @@ const CHASSIS = new THREE.Color(0x2b2e31);
 const TRAILER_SIDE = new THREE.Color(0xe9ecef);
 const GARBAGE_BODY = new THREE.Color(0x3f6e3a);
 const VAN_WHITE = new THREE.Color(0xf7f7f5);
+const AMBER = new THREE.Color(0xffa000);
 
 /** Where flashing beacons sit on a model (local coordinates, front = +z). */
 export interface BeaconMount {
@@ -159,6 +160,21 @@ export function buildVehicleModel(model: VehicleModel, length: number, width: nu
       box(0, -cab / 2 + 0.2, hw, hl - cab / 2 - 0.4, 0.6, 3.2, GARBAGE_BODY);
       box(0, -hl + 0.5, hw - 0.1, 0.5, 0.5, 2.6, paint);
       box(0, -hl + 0.02, hw - 0.5, 0.02, 0.9, 1.6, CHASSIS);
+      lights(0.7);
+      break;
+    }
+    case 'utility_van': {
+      // Power-company van: painted body, reflective stripe, amber light bar.
+      const cabFront = hl - 0.9;
+      wheels(0.66, [hl - 0.85, -hl + 0.95]);
+      box(0, -0.45, hw, hl - 0.45, 0.32, 2.3, paint);
+      box(0, cabFront + 0.45, hw - 0.04, 0.45, 0.32, 1.05, paint);
+      box(0, -0.6, hw + 0.02, hl - 1.2, 0.85, 1.05, WHITE);
+      box(0, cabFront - 0.02, hw - 0.12, 0.05, 1.15, 1.95, GLASS);
+      box(0, cabFront - 0.6, hw + 0.01, 0.45, 1.2, 1.85, GLASS);
+      box(0, cabFront - 0.8, 0.6, 0.15, 2.3, 2.45, AMBER);
+      // Ladder on the roof.
+      for (const sx of [-1, 1]) box(sx * 0.4, -0.9, 0.04, 1.6, 2.32, 2.4, STEEL);
       lights(0.7);
       break;
     }

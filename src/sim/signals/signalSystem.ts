@@ -39,6 +39,8 @@ export const NO_SIGNALS: SignalLookup = { lightFor: () => null };
 /** Fixed-time traffic lights, one controller per signalised intersection. */
 export class SignalSystem implements SignalLookup {
   readonly controllers: SignalController[] = [];
+  /** Junctions whose lights are out (power cut): they work as unsignalised ones. */
+  private dark = new Set<number>();
   private readonly byLane = new Map<SegmentId, { controller: SignalController; phase: number }>();
 
   constructor(
@@ -71,10 +73,20 @@ export class SignalSystem implements SignalLookup {
     }
   }
 
+  /** Switches the lights of these junctions (node ids) off; all others back on. */
+  setDark(nodes: ReadonlySet<number>): void {
+    this.dark = new Set(nodes);
+  }
+
+  isDark(nodeId: number): boolean {
+    return this.dark.has(nodeId);
+  }
+
   lightFor(laneId: SegmentId): LightState | null {
     const entry = this.byLane.get(laneId);
     if (!entry) return null;
     const { controller, phase } = entry;
+    if (this.dark.has(controller.nodeId)) return null;
     if (phase !== controller.phaseIndex || controller.stage === 'allRed') return 'red';
     return controller.stage;
   }

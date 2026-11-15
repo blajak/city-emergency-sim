@@ -173,9 +173,20 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    spot held by a bus/lorry wait fully behind it (or park in front when already beside it);
    no in-lane stop approach towards the kerb past parked vehicles. Vehicle info card stays
    in milestone 7.
-6. **Power grid and night**: plant, substations, power lines, blackout card,
-   fire-triggered blackout, utility crew repairs, day/night switch, dark districts
-   and unsignalised junctions.
+6. ✅ **Power grid and night**: a substation in every district (no visible power lines —
+   user decision), power plant in every city (small towns fall back to any free block).
+   Clicking the plant opens a card: per district on/off, "Send crew", crew status.
+   Manual cuts stay until switched on or a crew is sent; a fire at the plant cuts a random
+   district and a crew goes automatically once the fire is out. Without power a district's
+   traffic lights go dark (junctions work unsignalised via reservations) and at night its
+   windows, shop fronts, signs and street lamps go dark; a red "NO POWER" district label
+   shows at every zoom. Utility crews (1 in small towns, 2 in big cities) park nose-out on
+   the driveway of the power-company depot next to the plant, drive out onto the kerb and
+   merge, repair at the substation (60–90 s), come back and loop round onto their spot.
+   Day/night switch (button, key N): dark sky, moonlight, lit windows (random per
+   district), street lamps with pools of light, headlights. Safety work: barriers only
+   come down on an empty crossing; delivery bays keep clear of the railway; kerb spots
+   start 6 m into a lane; no turning into a lane past a moved-over responder.
 7. **Integration & polish**: incident priorities, crossing-aware routing, vehicle info
    card + follow camera, city pulse, performance pass, README / GIF update.
 

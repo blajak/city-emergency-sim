@@ -33,8 +33,11 @@ export function curbStop(
   return { segment: lane.id, s: clampToLane(lane, s, vehicleLength) };
 }
 
+/** ...and clear of the junction at the lane start, where turning long vehicles cut the corner. */
+const LANE_START_MARGIN = 6;
+
 export function clampToLane(lane: Lane, s: number, vehicleLength: number): number {
-  return Math.min(lane.length - LANE_END_MARGIN, Math.max(vehicleLength + 1, s));
+  return Math.min(lane.length - LANE_END_MARGIN, Math.max(vehicleLength + LANE_START_MARGIN, s));
 }
 
 /** Stop at a kerb position (`s` along the edge centre line marks the middle of the vehicle). */

@@ -101,6 +101,23 @@ body {
   color: var(--muted);
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.night-toggle {
+  width: 30px !important;
+  height: 30px !important;
+  font-size: 16px !important;
+}
+
+.night-toggle.active {
+  color: #ffd166;
+  background: #1f2a44 !important;
+}
+
 .clock {
   font-size: 20px;
   font-weight: 600;
@@ -540,4 +557,66 @@ kbd {
 .bus-status {
   margin: 0 0 10px;
   font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Power plant card
+ * ------------------------------------------------------------------------ */
+
+.power-card {
+  width: 340px;
+}
+
+.power-badge {
+  color: #1f2933;
+  background: #ffd166;
+}
+
+.power-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid rgba(30, 40, 50, 0.07);
+  border-radius: 10px;
+}
+
+.power-name {
+  font-weight: 600;
+}
+
+.power-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.small-button {
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(30, 40, 50, 0.06);
+  border: 0;
+  border-radius: 7px;
+}
+
+.small-button:hover:not(:disabled) {
+  background: rgba(30, 40, 50, 0.12);
+}
+
+.small-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.card-subhead {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

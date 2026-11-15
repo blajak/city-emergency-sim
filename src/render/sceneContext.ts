@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Bounds } from '../sim/world/types';
 
 const SKY = 0xcfe6f3;
+const NIGHT_SKY = 0x0d1729;
 const SHADOW_MAP_SIZE = 4096;
 /** Direction the sunlight travels (from the sun towards the ground), roughly normalised. */
 const SUN_DIRECTION = new THREE.Vector3(0.45, 0.8, -0.32);
@@ -19,6 +20,8 @@ export interface SceneContext {
    * shifted so the city stays centred in the visible area.
    */
   setViewInsets(right: number, bottom: number): void;
+  /** Night: dark sky, dim blue moonlight instead of the sun. */
+  setNight(night: boolean): void;
 }
 
 export function createSceneContext(container: HTMLElement, bounds: Bounds): SceneContext {
@@ -66,7 +69,8 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
   });
   controls.update();
 
-  scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x7d8a63, 1.6));
+  const hemisphere = new THREE.HemisphereLight(0xeaf4ff, 0x7d8a63, 1.6);
+  scene.add(hemisphere);
   const sun = new THREE.DirectionalLight(0xfff3df, 2.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
@@ -117,6 +121,16 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
     setViewInsets(right, bottom) {
       insets = { right, bottom };
       onResize();
+    },
+    setNight(night) {
+      const sky = night ? NIGHT_SKY : SKY;
+      (scene.background as THREE.Color).setHex(sky);
+      scene.fog?.color.setHex(sky);
+      hemisphere.color.setHex(night ? 0x5a6f9e : 0xeaf4ff);
+      hemisphere.groundColor.setHex(night ? 0x1a2030 : 0x7d8a63);
+      hemisphere.intensity = night ? 0.55 : 1.6;
+      sun.color.setHex(night ? 0x9fb4ff : 0xfff3df);
+      sun.intensity = night ? 0.35 : 2.6;
     },
     start(onFrame) {
       const clock = new THREE.Clock();

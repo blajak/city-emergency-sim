@@ -18,10 +18,9 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 ## Status
 
 - v1 (SPEC.md): all 7 milestones done.
-- v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–5 done
-  (performance foundation, city generator v2, railway, buses, logistics).
-- **Next: milestone 6** power grid
-  + day/night switch + utility crew, 7 integration & polish (incident priorities,
+- v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–6 done
+  (performance foundation, city generator v2, railway, buses, logistics, power + night).
+- **Next: milestone 7** integration & polish (incident priorities,
   crossing-aware routing for emergency units, vehicle info card + follow camera,
   "city pulse" panel, README/GIF update). Details and user decisions are in SPEC-v2.md.
 
@@ -40,6 +39,8 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   - `signals/`, `rail/` (`railSystem.ts` trains + crossing controller, `crossings.ts`),
     `dispatch/` (dispatcher, units, incidents, curb spots).
   - `logistics/logisticsSystem.ts` lorries, delivery vans, garbage trucks (jobs, rounds).
+  - `power/powerSystem.ts` districts on/off, dark junctions (`SignalSystem.setDark`), plant
+    fires, utility crews with driveway moves (`traffic/offroad.ts`).
   - `testing/overlap.ts` shared collision check for tests (tractor and trailer are separate bodies).
   - `world/transit.ts` plans bus lines/stops (`City.transit`), `world/depotYard.ts` the depot
     stalls; `transit/busSystem.ts` runs buses (timetable, stops, depot yard moves).
@@ -71,6 +72,9 @@ Traffic safety took many iterations; stress tests found each of these:
   of a long vehicle on the lane it just left (`tailsBySegment`); leaders are picked by nearest
   rear. Service vehicles (bus, truck, garbage, delivery) yield (pulled further right) and are
   waited for at kerb spots; others park in front of them when already alongside.
+- Night/power rendering: buildings and lamps are merged per district (`setLighting(night,
+  powered)` on the city view); `sim.power.version` changes on every power change.
+- Level crossings: barriers only come down once the crossing is empty (long lorries).
 - Known (pre-existing, not bus-related): the busy centre junction of seed 7/99 at scale 10 can
   hold a unit > 60 s or cars > 120 s under 300 cars.
 

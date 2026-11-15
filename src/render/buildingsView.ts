@@ -5,23 +5,45 @@ import type { Building } from '../sim/world/types';
 import { addOtherBuilding, SIGN_STYLES } from './buildingKinds';
 import { type Builders, ROOF_GREY, ROOF_TILES, addCornice, addRoofClutter, color, frameOf, shade } from './buildingParts';
 import { Frame, GeometryBuilder, addBox, addGableRoof } from './geometryBuilder';
-import { createShopTexture, createSignAtlas, createSignTexture, createWindowTexture } from './textures';
+import {
+  createShopLightTexture,
+  createShopTexture,
+  createSignAtlas,
+  createSignTexture,
+  createWindowLightTexture,
+  createWindowTexture,
+} from './textures';
 
 
-export function createBuildingsView(buildings: readonly Building[]): THREE.Group {
+/** Night lighting per district: lit windows, shop fronts and signs, dark when the district has no power. */
+export interface BuildingsView {
+  group: THREE.Group;
+  setLighting(night: boolean, powered: readonly boolean[]): void;
+}
+
+const WINDOW_GLOW = 1.15;
+const SHOP_GLOW = 0.9;
+const DARK_SIGN = new THREE.Color(0x2a2d33);
+
+/**
+ * All buildings, merged per district (a handful of meshes each) so a
+ * district's lights can be switched off on its own.
+ */
+export function createBuildingsView(buildings: readonly Building[], districtCount: number): BuildingsView {
   const atlas = createSignAtlas(SIGN_STYLES);
-  const builders: Builders = {
+  const perDistrict: Builders[] = Array.from({ length: districtCount }, () => ({
     facade: new GeometryBuilder(),
     shop: new GeometryBuilder(),
     solid: new GeometryBuilder(),
     signs: new GeometryBuilder(),
     atlas,
-  };
+  }));
   const group = new THREE.Group();
   group.name = 'buildings';
 
   for (const building of buildings) {
     const rng = createRng(building.id * 7919 + 17);
+    const builders = perDistrict[building.district];
     switch (building.kind) {
       case 'residential':
         addResidential(builders, building, rng);
@@ -40,31 +62,57 @@ export function createBuildingsView(buildings: readonly Building[]): THREE.Group
     }
   }
 
-  const facadeMaterial = new THREE.MeshStandardMaterial({
-    map: createWindowTexture(),
-    vertexColors: true,
-    roughness: 0.85,
-  });
-  const shopMaterial = new THREE.MeshStandardMaterial({
-    map: createShopTexture(),
-    vertexColors: true,
-    roughness: 0.8,
-  });
+  const windowTexture = createWindowTexture();
+  const shopTexture = createShopTexture();
+  const shopLight = createShopLightTexture();
   const solidMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+  const lit: { facade: THREE.MeshStandardMaterial; shop: THREE.MeshStandardMaterial; signs: THREE.MeshBasicMaterial }[] = [];
 
-  for (const [builder, material] of [
-    [builders.facade, facadeMaterial],
-    [builders.shop, shopMaterial],
-    [builders.solid, solidMaterial],
-  ] as const) {
-    const mesh = new THREE.Mesh(builder.build(), material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  }
-  const signs = new THREE.Mesh(builders.signs.build(), new THREE.MeshBasicMaterial({ map: atlas.texture, vertexColors: true }));
-  group.add(signs);
-  return group;
+  perDistrict.forEach((builders, district) => {
+    const facade = new THREE.MeshStandardMaterial({
+      map: windowTexture,
+      vertexColors: true,
+      roughness: 0.85,
+      emissive: 0xffffff,
+      // A different pattern of lit windows in every district.
+      emissiveMap: createWindowLightTexture(district * 7919 + 3),
+      emissiveIntensity: 0,
+    });
+    const shop = new THREE.MeshStandardMaterial({
+      map: shopTexture,
+      vertexColors: true,
+      roughness: 0.8,
+      emissive: 0xffffff,
+      emissiveMap: shopLight,
+      emissiveIntensity: 0,
+    });
+    const signs = new THREE.MeshBasicMaterial({ map: atlas.texture, vertexColors: true });
+    lit.push({ facade, shop, signs });
+    for (const [builder, material] of [
+      [builders.facade, facade],
+      [builders.shop, shop],
+      [builders.solid, solidMaterial],
+    ] as const) {
+      const mesh = new THREE.Mesh(builder.build(), material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    group.add(new THREE.Mesh(builders.signs.build(), signs));
+  });
+
+  return {
+    group,
+    setLighting(night, powered) {
+      lit.forEach((m, district) => {
+        const on = powered[district] ?? true;
+        m.facade.emissiveIntensity = night && on ? WINDOW_GLOW : 0;
+        m.shop.emissiveIntensity = night && on ? SHOP_GLOW : 0;
+        // Signs are unlit (always bright): dim them in a blacked-out district at night.
+        m.signs.color.set(night && !on ? DARK_SIGN : 0xffffff);
+      });
+    },
+  };
 }
 
 /** Height of a pitched roof above the wall top. */

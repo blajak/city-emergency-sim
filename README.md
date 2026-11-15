@@ -49,6 +49,10 @@ pass, and it works the scene before heading back.
   warehouses and on to supermarkets and the mall; delivery vans serve the shops. They load
   and unload in the delivery bays, off the road. In bigger cities garbage trucks do their
   rounds, stopping in the lane at each building, and unload at the waste depot.
+- **Power grid and night.** Click the power plant to switch districts off and on and send
+  a utility crew. A district without power loses its traffic lights (junctions run without
+  signals) and, at night, its lit windows and street lamps. A fire at the plant cuts a
+  random district until the crew repairs it. Press <kbd>N</kbd> for night.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
 

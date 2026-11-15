@@ -15,11 +15,12 @@ export type VehicleModel =
   | 'truck'
   | 'trailer'
   | 'garbage_truck'
-  | 'delivery_van';
-export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus' | 'truck' | 'garbage' | 'delivery';
+  | 'delivery_van'
+  | 'utility_van';
+export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus' | 'truck' | 'garbage' | 'delivery' | 'utility';
 
 /** Roles that stop at kerb spots for a short while and then leave on their own. */
-export const SERVICE_ROLES: readonly VehicleRole[] = ['bus', 'truck', 'garbage', 'delivery'];
+export const SERVICE_ROLES: readonly VehicleRole[] = ['bus', 'truck', 'garbage', 'delivery', 'utility'];
 
 /**
  * - driving: normal traffic participant
@@ -47,6 +48,7 @@ export const VEHICLE_DIMENSIONS: Record<VehicleModel, VehicleDimensions> = {
   trailer: { length: 11.6, width: 2.55 },
   garbage_truck: { length: 9.5, width: 2.5 },
   delivery_van: { length: 5.4, width: 2.05 },
+  utility_van: { length: 5.4, width: 2.05 },
 };
 
 /** Geometry of the articulated lorry, measured back from the front bumper. */

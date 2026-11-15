@@ -1,9 +1,10 @@
-import { type OBB, obbLocalToWorld, obbOverlap, pointInObb, pointInPolygon, projectOnPolyline, samplePolyline } from '../math/geometry';
+import { type OBB, distanceToPolyline, obbLocalToWorld, obbOverlap, pointInObb, pointInPolygon, projectOnPolyline, samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
 import { SpatialGrid, obbBox, pointsBox } from '../math/spatialGrid';
 import { type Vec2, add, distance, dot, lerp, normalize, rightOf, scale, sub, vec2 } from '../math/vec2';
 import { CROSSWALK_LENGTH, FLOOR_HEIGHT, GROUND_FLOOR_HEIGHT, STREET_CLEARANCE } from './constants';
 import { districtAt } from './districts';
+import { approachDistance } from './roadGeometry';
 import { RoadIndex } from './roadIndex';
 import type { RailPlan } from './rail';
 import type { Block, CityLayout, StationSite } from './roadNetwork';
@@ -133,6 +134,14 @@ const BAY_LENGTH: Partial<Record<BuildingKind, number>> = {
 
 // ---------------------------------------------------------------------------
 
+/** Van spots on the power-company driveway for a city scale. */
+export function utilityCrews(scale: number): number {
+  return scale >= 2 ? 2 : 1;
+}
+
+/** Garage depth at the back of the power-company site. */
+export const UTILITY_GARAGE_DEPTH = 6;
+
 export function placeBuildings(
   rng: Rng,
   layout: CityLayout,
@@ -228,9 +237,14 @@ export function placeBuildings(
   for (const kind of SITE_ORDER) {
     const rule = SITE_RULES[kind];
     for (let n = 0; n < rule.count(cityScale); n++) {
-      const candidates = layout.blocks.filter(
-        (b) => b.regular && !b.rail && !b.park && !usedBlocks.has(b) && rule.districts.includes(districtKind(blockCenter(b))),
-      );
+      const inDistricts = (anyDistrict: boolean) =>
+        layout.blocks.filter(
+          (b) => b.regular && !b.rail && !b.park && !usedBlocks.has(b) && (anyDistrict || rule.districts.includes(districtKind(blockCenter(b)))),
+        );
+      let candidates = inDistricts(false);
+      // The city always needs its power plant: in a small town without a regular
+      // industrial block it goes to any free regular block.
+      if (candidates.length === 0 && kind === 'power_plant') candidates = inDistricts(true);
       orderCandidates(candidates, rule.prefer, rng, mapCenter, districts);
       for (const block of candidates) {
         const site = blockSite(block, network, rng);
@@ -250,6 +264,49 @@ export function placeBuildings(
         usedBlocks.add(block);
         break;
       }
+    }
+  }
+
+  // 3b. Power: a substation near the centre of every district, the power-company
+  // depot (garage + driveway for the utility vans) next to the power plant.
+  const frontageSpots = (target: Vec2, limit = 400) => {
+    const spots: { edge: RoadEdge; s: number; side: Side; d: number }[] = [];
+    for (const edge of network.edges) {
+      for (let s = STREET_CLEARANCE + 12; s < edge.length - STREET_CLEARANCE - 12; s += 6) {
+        for (const side of [1, -1] as const) spots.push({ edge, s, side, d: distance(frontagePoint(edge, s, side), target) });
+      }
+    }
+    return spots.sort((a, b) => a.d - b.d).slice(0, limit);
+  };
+  for (const district of districts) {
+    const spec: BuildingSpec = { kind: 'substation', width: 14, depth: 11, groundFloorHeight: 3, upperFloors: 0, roof: 'flat', facadeColor: 0xb7bcc0 };
+    for (const spot of frontageSpots(district.center)) {
+      if (districtAt(districts, frontagePoint(spot.edge, spot.s, spot.side)) !== district.id) continue;
+      if (addFrontage(spec, spot.edge, spot.s, spot.side)) break;
+    }
+  }
+  const plant = buildings.find((b) => b.kind === 'power_plant');
+  if (plant) {
+    const spots = utilityCrews(cityScale);
+    const width = spots === 2 ? 22 : 15;
+    const depth = 18;
+    // Vans pull out onto the kerb up to ~15 m beyond the site: keep all of it clear of the junctions.
+    const room = width / 2 + 18;
+    for (const spot of frontageSpots(plant.footprint.center, Infinity)) {
+      const from = network.nodes[spot.edge.from];
+      const to = network.nodes[spot.edge.to];
+      if (spot.s - room < approachDistance(from) || spot.s + room > spot.edge.length - approachDistance(to)) continue;
+      const plot = frontageFootprint(spot.edge, spot.s, spot.side, width, depth);
+      if (!isFree(plot)) continue;
+      const footprint: OBB = {
+        center: obbLocalToWorld(plot, 0, -(plot.halfD - UTILITY_GARAGE_DEPTH / 2)),
+        halfW: plot.halfW,
+        halfD: UTILITY_GARAGE_DEPTH / 2,
+        rotation: plot.rotation,
+      };
+      const spec: BuildingSpec = { kind: 'utility_depot', width, depth: UTILITY_GARAGE_DEPTH, groundFloorHeight: 5, upperFloors: 0, roof: 'flat', facadeColor: 0xe8d9a8 };
+      push(spec, footprint, plot, spot.edge, spot.s, spot.side);
+      break;
     }
   }
 
@@ -279,7 +336,7 @@ export function placeBuildings(
   }
 
   // 5. Delivery lay-bys.
-  assignBays(buildings, network);
+  assignBays(buildings, network, railPlan);
 
   return buildings;
 }
@@ -481,7 +538,10 @@ function mainStructure(plot: OBB, fw: number, fd: number): OBB {
 // Delivery bays
 // ---------------------------------------------------------------------------
 
-function assignBays(buildings: Building[], network: RoadNetwork): void {
+/** Bays keep this far from the railway corridors (a parked lorry must not stand on a level crossing), m. */
+const BAY_RAIL_CLEARANCE = 4;
+
+function assignBays(buildings: Building[], network: RoadNetwork, railPlan: RailPlan): void {
   const taken = new Map<string, { s: number; half: number }[]>();
   const keyOf = (edgeId: EdgeId, side: Side) => `${edgeId}:${side}`;
   // Keep the curb in front of stations free for their units.
@@ -505,6 +565,11 @@ function assignBays(buildings: Building[], network: RoadNetwork): void {
     const key = keyOf(edge.id, b.address.side);
     const others = taken.get(key) ?? [];
     if (others.some((o) => Math.abs(o.s - s) < o.half + bayLength / 2 + 2)) continue;
+    const nearRail = [-0.5, -0.25, 0, 0.25, 0.5].some((f) => {
+      const p = samplePolyline(edge.points, s + f * bayLength).point;
+      return railPlan.corridors.some((c) => distanceToPolyline(p, c.points) < c.halfWidth + BAY_RAIL_CLEARANCE);
+    });
+    if (nearRail) continue;
     const bay: DeliveryBay = { edgeId: edge.id, side: b.address.side, s, length: bayLength };
     b.bay = bay;
     taken.set(key, [...others, { s, half: bayLength / 2 }]);

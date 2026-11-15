@@ -7,6 +7,7 @@ import { buildLaneGraph } from './traffic/laneGraph';
 import { TrafficSystem } from './traffic/trafficSystem';
 import { BusSystem } from './transit/busSystem';
 import { LogisticsSystem } from './logistics/logisticsSystem';
+import { PowerSystem } from './power/powerSystem';
 import type { BuildingId, City } from './world/types';
 
 /** Fixed simulation step (20 ticks per second of sim time). */
@@ -33,6 +34,7 @@ export class Simulation {
   readonly dispatcher: Dispatcher;
   readonly buses: BusSystem;
   readonly logistics: LogisticsSystem;
+  readonly power: PowerSystem;
   time = 0;
   timeScale: TimeScale = 1;
   /** Smoothed wall-clock cost of one simulation step, ms (for the debug overlay). */
@@ -55,6 +57,7 @@ export class Simulation {
     // Buses and lorries before civilians, so cars are not spawned on top of them.
     this.buses = new BusSystem(city, this.traffic, rng);
     this.logistics = new LogisticsSystem(city, this.traffic, rng);
+    this.power = new PowerSystem(city, this.traffic, this.signals, rng);
     this.traffic.spawnCivilians(options.civilianCount ?? 20);
   }
 
@@ -92,5 +95,6 @@ export class Simulation {
     this.dispatcher.update(this.time, SIM_DT, events);
     this.buses.update(this.time, events);
     this.logistics.update(this.time, events);
+    this.power.update(this.time, events, this.dispatcher.incidents);
   }
 }

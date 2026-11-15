@@ -629,7 +629,7 @@ export class TrafficSystem {
     }
     if (this.longConflict(vehicle, connector)) return false;
     if (connector.turn === 'left' && this.oncomingHasPriority(connector)) return false;
-    if (this.overtakerNearStart(connector.toLane, vehicle)) return false;
+    if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
     // Do not block the junction if the exit lane is backed up.
     const tail = this.lastInLine(connector.toLane);
@@ -659,7 +659,7 @@ export class TrafficSystem {
     if (this.longConflict(vehicle, connector)) return false;
     const tail = this.lastInLine(connector.toLane, vehicle);
     if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
-    if (this.overtakerNearStart(connector.toLane, vehicle)) return false;
+    if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
 
     for (const holder of revoke) this.cancelReservation(holder);
@@ -930,10 +930,23 @@ export class TrafficSystem {
     }
   }
 
-  /** Entering `laneId` now would meet a car overtaking near its start. */
-  private overtakerNearStart(laneId: SegmentId, vehicle: Vehicle): boolean {
+  /**
+   * Entering via `connector` now would meet a car overtaking near the start of
+   * its lane, or (turning in, as a non-responding vehicle) cut the corner past a
+   * responding unit at the end of the opposite lane that is moved over to pass.
+   * Going straight past such a unit fits, and two units never block each other.
+   */
+  private overtakerNearStart(connector: Connector, vehicle: Vehicle): boolean {
+    const laneId = connector.toLane;
     const lane = this.segment(laneId);
-    return this.oncomingOvertakers(laneId).some((o) => lane.length - o.s < vehicle.length + OVERTAKER_ENTRY_ROOM);
+    if (this.oncomingOvertakers(laneId).some((o) => lane.length - o.s < vehicle.length + OVERTAKER_ENTRY_ROOM)) return true;
+    if (connector.turn === 'straight' || isResponding(vehicle)) return false;
+    const opposite = this.oppositeLane.get(laneId);
+    if (opposite === undefined) return false;
+    const oppositeLength = this.segment(opposite).length;
+    return (this.bySegment.get(opposite) ?? []).some(
+      (o) => isResponding(o) && o.lateral < -0.3 && oppositeLength - o.s < OVERTAKER_ENTRY_ROOM,
+    );
   }
 
   /** Sideways target while overtaking: beside the bus until past it, then back into the lane. */

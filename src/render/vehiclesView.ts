@@ -12,6 +12,10 @@ const INITIAL_CAPACITY = 64;
 export type RenderVehicle = Pick<Vehicle, 'model' | 'color' | 'pose' | 'prevPose' | 'sirens'> &
   Partial<Pick<Vehicle, 'trailer' | 'prevTrailer'>>;
 
+/** Headlight glow and the patch of light in front of a vehicle at night. */
+const HEADLIGHT_GLOW = new THREE.Color(0xfff6dc);
+const BEAM_LENGTH = 9;
+
 const BEACON_ON = new THREE.Color(0x3d8bff);
 const BEACON_OFF = new THREE.Color(0x1a2a44);
 
@@ -35,6 +39,20 @@ export class VehiclesView {
   private readonly beaconGeometry = new THREE.BoxGeometry(0.42, 0.22, 0.3);
   private beacons: THREE.InstancedMesh;
   private beaconCapacity = INITIAL_CAPACITY;
+  private night = false;
+  private beams: THREE.InstancedMesh;
+  private glows: THREE.InstancedMesh;
+  private lightCapacity = 0;
+  private readonly beamGeometry = new THREE.PlaneGeometry(2.6, BEAM_LENGTH).rotateX(-Math.PI / 2);
+  private readonly glowGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.06);
+  private readonly beamMaterial = new THREE.MeshBasicMaterial({
+    color: 0xfff0c8,
+    transparent: true,
+    opacity: 0.16,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  private readonly glowMaterial = new THREE.MeshBasicMaterial({ color: HEADLIGHT_GLOW });
 
   private readonly matrix = new THREE.Matrix4();
   private readonly local = new THREE.Matrix4();
@@ -47,6 +65,34 @@ export class VehiclesView {
   constructor() {
     this.group.name = 'vehicles';
     this.beacons = this.createBeacons(this.beaconCapacity);
+    this.beams = new THREE.InstancedMesh(this.beamGeometry, this.beamMaterial, 1);
+    this.glows = new THREE.InstancedMesh(this.glowGeometry, this.glowMaterial, 1);
+    this.ensureLights(INITIAL_CAPACITY);
+  }
+
+  /** Headlights on at night. */
+  setNight(night: boolean): void {
+    this.night = night;
+    this.beams.visible = this.glows.visible = night;
+  }
+
+  private ensureLights(count: number): void {
+    if (count <= this.lightCapacity) return;
+    this.lightCapacity = Math.max(count, this.lightCapacity * 2, INITIAL_CAPACITY);
+    for (const old of [this.beams, this.glows]) {
+      this.group.remove(old);
+      old.dispose();
+    }
+    this.beams = new THREE.InstancedMesh(this.beamGeometry, this.beamMaterial, this.lightCapacity);
+    this.glows = new THREE.InstancedMesh(this.glowGeometry, this.glowMaterial, this.lightCapacity * 2);
+    for (const mesh of [this.beams, this.glows]) {
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.visible = this.night;
+      this.group.add(mesh);
+    }
+    this.beams.renderOrder = 2;
   }
 
   update(input: readonly RenderVehicle[], alpha: number, time: number): void {
@@ -65,6 +111,8 @@ export class VehiclesView {
 
     const used = new Map<VehicleModel, number>();
     let beaconCount = 0;
+    let lightCount = 0;
+    if (this.night) this.ensureLights(vehicles.length);
     for (const vehicle of vehicles) {
       const batch = this.batches.get(vehicle.model)!;
       const i = used.get(vehicle.model) ?? 0;
@@ -77,6 +125,19 @@ export class VehiclesView {
       batch.paint.setMatrixAt(i, this.matrix);
       batch.fixed.setMatrixAt(i, this.matrix);
       batch.paint.setColorAt(i, this.color.setHex(vehicle.color));
+
+      if (this.night && vehicle.model !== 'trailer') {
+        // Beam on the road ahead and two glowing headlamps at the front.
+        const halfLength = (vehicle.model === 'truck' ? 3 : VEHICLE_DIMENSIONS[vehicle.model].length / 2);
+        const halfWidth = VEHICLE_DIMENSIONS[vehicle.model].width / 2;
+        this.local.makeTranslation(0, 0.1, halfLength + BEAM_LENGTH / 2);
+        this.beams.setMatrixAt(lightCount, this.local.premultiply(this.matrix));
+        for (const side of [-1, 1]) {
+          this.local.makeTranslation(side * (halfWidth - 0.32), 0.7, halfLength + 0.05);
+          this.glows.setMatrixAt(lightCount * 2 + (side + 1) / 2, this.local.premultiply(this.matrix));
+        }
+        lightCount++;
+      }
 
       batch.model.beacons.forEach((mount, k) => {
         if (beaconCount >= this.beaconCapacity) this.growBeacons();
@@ -95,6 +156,10 @@ export class VehiclesView {
       }
       if (batch.paint.instanceColor) batch.paint.instanceColor.needsUpdate = true;
     }
+    this.beams.count = lightCount;
+    this.glows.count = lightCount * 2;
+    this.beams.instanceMatrix.needsUpdate = true;
+    this.glows.instanceMatrix.needsUpdate = true;
     this.beacons.count = beaconCount;
     this.beacons.instanceMatrix.needsUpdate = true;
     if (this.beacons.instanceColor) this.beacons.instanceColor.needsUpdate = true;

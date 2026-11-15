@@ -39,6 +39,8 @@ const LABELS: Record<BuildingKind, string> = {
   waste_depot: 'Waste depot',
   power_plant: 'Power plant',
   bus_depot: 'Bus depot',
+  substation: 'Substation',
+  utility_depot: 'Power company depot',
   train_station: 'Train station',
   freight_hub: 'Freight hub',
   freight_terminal: 'Freight terminal',

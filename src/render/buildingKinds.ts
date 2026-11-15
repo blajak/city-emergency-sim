@@ -35,6 +35,7 @@ export const SIGN_STYLES: SignStyle[] = [
   { text: 'FREIGHT HUB', background: '#37474f', foreground: '#ffca28' },
   { text: 'FREIGHT TERMINAL', background: '#37474f', foreground: '#ffca28' },
   { text: 'BUS DEPOT', background: '#1e6fd0', foreground: '#ffffff' },
+  { text: 'POWER CO.', background: '#f2b705', foreground: '#1f2933' },
 ];
 
 const GLASS = color(0x5d7a8c);
@@ -85,6 +86,10 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addPowerPlant(builders, b);
     case 'bus_depot':
       return addBusDepot(builders, b);
+    case 'substation':
+      return addSubstation(builders, b);
+    case 'utility_depot':
+      return addUtilityDepot(builders, b);
     case 'train_station':
       return addTrainStation(builders, b);
     case 'freight_hub':
@@ -348,6 +353,57 @@ function addWasteDepot(builders: Builders, b: Building, rng: Rng): void {
   // Fence along the street.
   box(builders.solid, frame, 0, plot.halfD - 0.3, plot.halfW - 6, 0.05, 0, 2, color(0x6f7a6c));
   sign(builders, frame, 'RECYCLING', 7, b.height - 1.5, oz + halfD + 0.1);
+}
+
+/** Fenced compound with transformers and a small control building. */
+function addSubstation(builders: Builders, b: Building): void {
+  const frame = frameOf(b);
+  const { halfW, halfD } = b.footprint;
+  addFlatRect(builders.solid, frame, 0, 0, halfW, halfD, 0.07, color(0xa7a49c));
+  // Fence: posts and a light mesh band on all four sides.
+  const fence = color(0x8f979e);
+  for (const [ox, oz, hw, hd] of [
+    [0, halfD, halfW, 0.03],
+    [0, -halfD, halfW, 0.03],
+    [halfW, 0, 0.03, halfD],
+    [-halfW, 0, 0.03, halfD],
+  ] as const) {
+    box(builders.solid, frame, ox, oz, hw, hd, 0.2, 2.2, fence);
+  }
+  for (let x = -halfW; x <= halfW + 0.01; x += 3.5) {
+    for (const z of [-halfD, halfD]) box(builders.solid, frame, x, z, 0.06, 0.06, 0, 2.4, DARK);
+  }
+  // Transformers with cooling fins and insulators.
+  const grey = color(0x7d868c);
+  for (const x of [-halfW + 3.2, -halfW + 7.2]) {
+    box(builders.solid, frame, x, -0.5, 1.3, 1.6, 0, 2.6, grey);
+    for (const sx of [-1, 1]) box(builders.solid, frame, x + sx * 1.45, -0.5, 0.15, 1.3, 0.3, 2.3, shade(0x7d868c, 0.8));
+    for (const dx of [-0.6, 0, 0.6]) box(builders.solid, frame, x + dx, -0.5, 0.09, 0.09, 2.6, 3.6, color(0xc9ced2));
+  }
+  // Control building.
+  box(builders.solid, frame, halfW - 2.6, -halfD + 2.2, 2, 1.8, 0, 3, color(b.facadeColor), color(ROOF_GREY));
+  box(builders.solid, frame, halfW - 2.6, -halfD + 4.02, 0.5, 0.03, 0, 2.1, DARK);
+  // Warning sign on the fence.
+  box(builders.solid, frame, 0, halfD + 0.05, 0.35, 0.02, 1.2, 1.7, color(0xffd166));
+}
+
+/** Power-company garage at the back, a paved driveway with van spots in front. */
+function addUtilityDepot(builders: Builders, b: Building): void {
+  const frame = plotFrame(b);
+  const plot = b.plot!;
+  const oz = footprintOffset(b);
+  const { halfW, halfD } = b.footprint;
+  addFlatRect(builders.solid, frame, 0, 0, plot.halfW, plot.halfD, 0.07, color(0x9a9a96));
+  box(builders.solid, frame, 0, oz, halfW, halfD, 0, b.height, color(b.facadeColor), color(ROOF_GREY));
+  // Roller doors facing the driveway.
+  const doors = Math.max(1, Math.floor((halfW * 2) / 6));
+  for (let i = 0; i < doors; i++) {
+    const x = -halfW + ((i + 0.5) * halfW * 2) / doors;
+    box(builders.solid, frame, x, oz + halfD + 0.05, 2, 0.06, 0, 3.6, color(0x6b737a));
+  }
+  sign(builders, frame, 'POWER CO.', 6, b.height - 0.7, oz + halfD + 0.1);
+  // Yellow kerb lines at the driveway edges.
+  for (const sx of [-1, 1]) addFlatRect(builders.solid, frame, sx * (plot.halfW - 0.15), 0, 0.12, plot.halfD - 0.2, 0.09, color(0xf2c230));
 }
 
 /** Bus garage at the back of the plot, open yard with parked buses in front. */

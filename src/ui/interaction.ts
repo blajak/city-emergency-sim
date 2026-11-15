@@ -18,6 +18,11 @@ function isStation(building: Building): boolean {
   return building.kind === 'fire_station' || building.kind === 'police_station';
 }
 
+/** Buildings that open a card when clicked without a report tool. */
+function isClickable(building: Building): boolean {
+  return isStation(building) || building.kind === 'power_plant';
+}
+
 export interface InteractionCallbacks {
   onReport(type: IncidentType, building: Building): void;
   onRejected(message: string): void;
@@ -26,6 +31,8 @@ export interface InteractionCallbacks {
   /** Click on a bus or a bus stop while no report tool is active. */
   onBus(bus: Bus, screen: { x: number; y: number }): void;
   onStop(stop: BusStop, screen: { x: number; y: number }): void;
+  /** Click on the power plant while no report tool is active. */
+  onPowerPlant(screen: { x: number; y: number }): void;
   /** Click on anything else while no report tool is active. */
   onEmptyClick(): void;
 }
@@ -113,7 +120,7 @@ export class BuildingInteraction {
       if (this.pickTransit(e)) {
         this.highlight.hide();
         this.canvas.style.cursor = 'pointer';
-      } else if (building && isStation(building)) {
+      } else if (building && isClickable(building)) {
         this.highlight.show(building, STATION);
         this.canvas.style.cursor = 'pointer';
       } else {
@@ -143,6 +150,7 @@ export class BuildingInteraction {
       const screen = { x: e.clientX, y: e.clientY };
       if (transit?.kind === 'bus') this.callbacks.onBus(transit.bus, screen);
       else if (transit?.kind === 'stop') this.callbacks.onStop(transit.stop, screen);
+      else if (building?.kind === 'power_plant') this.callbacks.onPowerPlant(screen);
       else if (building && isStation(building)) this.callbacks.onStation(building, { x: e.clientX, y: e.clientY });
       else this.callbacks.onEmptyClick();
       return;

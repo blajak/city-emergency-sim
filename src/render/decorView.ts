@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { Bounds, LampSpot, TreeSpot } from '../sim/world/types';
+import { districtAt } from '../sim/world/districts';
+import type { Bounds, District, LampSpot, TreeSpot } from '../sim/world/types';
 import { STREET_CLEARANCE } from '../sim/world/constants';
 
 const TREE_GREENS = [0x5f9a48, 0x6fae52, 0x4e8a43, 0x7bb35c, 0x5a8f3e];
@@ -42,7 +43,20 @@ export function createTreesView(trees: readonly TreeSpot[]): THREE.Group {
   return group;
 }
 
-export function createLampsView(lamps: readonly LampSpot[]): THREE.Group {
+export interface LampsView {
+  group: THREE.Group;
+  setLighting(night: boolean, powered: readonly boolean[]): void;
+}
+
+const LAMP_HEAD_DAY = new THREE.Color(0xd8d8d0);
+const LAMP_HEAD_NIGHT = new THREE.Color(0xfff1c9);
+const LAMP_HEAD_DARK = new THREE.Color(0x3a3d42);
+
+/**
+ * Street lamps. Poles are shared; heads and the pools of light they cast at
+ * night are grouped per district so a blackout switches them off.
+ */
+export function createLampsView(lamps: readonly LampSpot[], districts: readonly District[]): LampsView {
   const group = new THREE.Group();
   group.name = 'lamps';
   const material = new THREE.MeshStandardMaterial({ color: 0x3b4046, roughness: 0.6, metalness: 0.3 });
@@ -51,8 +65,10 @@ export function createLampsView(lamps: readonly LampSpot[]): THREE.Group {
   // Arm and head reach towards the road (local +z).
   const arm = new THREE.BoxGeometry(0.08, 0.08, 1.2).translate(0, 5.45, 0.6);
   const head = new THREE.BoxGeometry(0.35, 0.18, 0.7).translate(0, 5.35, 1.25);
+  // Pool of light on the ground under and in front of the head.
+  const pool = new THREE.CircleGeometry(6, 24).rotateX(-Math.PI / 2).translate(0, 0.12, 2.6);
 
-  const meshes = [pole, arm, head].map((geometry) => {
+  const shared = [pole, arm].map((geometry) => {
     const mesh = new THREE.InstancedMesh(geometry, material, lamps.length);
     mesh.castShadow = true;
     group.add(mesh);
@@ -62,12 +78,43 @@ export function createLampsView(lamps: readonly LampSpot[]): THREE.Group {
   const matrix = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
   const one = new THREE.Vector3(1, 1, 1);
+  const byDistrict = districts.map(() => [] as THREE.Matrix4[]);
   lamps.forEach((lamp, i) => {
     quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), lamp.rotation);
     matrix.compose(new THREE.Vector3(lamp.pos.x, 0.12, lamp.pos.z), quat, one);
-    for (const mesh of meshes) mesh.setMatrixAt(i, matrix);
+    for (const mesh of shared) mesh.setMatrixAt(i, matrix);
+    byDistrict[districtAt(districts, lamp.pos)].push(matrix.clone());
   });
-  return group;
+
+  const parts = byDistrict.map((matrices) => {
+    const headMaterial = new THREE.MeshBasicMaterial({ color: LAMP_HEAD_DAY });
+    const heads = new THREE.InstancedMesh(head, headMaterial, Math.max(1, matrices.length));
+    const pools = new THREE.InstancedMesh(
+      pool,
+      new THREE.MeshBasicMaterial({ color: 0xffcf86, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }),
+      Math.max(1, matrices.length),
+    );
+    pools.renderOrder = 2;
+    matrices.forEach((m, i) => {
+      heads.setMatrixAt(i, m);
+      pools.setMatrixAt(i, m);
+    });
+    heads.count = pools.count = matrices.length;
+    pools.visible = false;
+    group.add(heads, pools);
+    return { headMaterial, pools };
+  });
+
+  return {
+    group,
+    setLighting(night, powered) {
+      parts.forEach((p, district) => {
+        const on = powered[district] ?? true;
+        p.headMaterial.color.copy(!night ? LAMP_HEAD_DAY : on ? LAMP_HEAD_NIGHT : LAMP_HEAD_DARK);
+        p.pools.visible = night && on;
+      });
+    },
+  };
 }
 
 /** Diorama base: grass top with earthy sides. */

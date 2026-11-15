@@ -1,5 +1,5 @@
 import { createRng } from '../math/rng';
-import { placeBuildings } from './buildings';
+import { placeBuildings, utilityCrews } from './buildings';
 import { placeLamps, placeTrees } from './decor';
 import { planDistricts } from './districts';
 import { planRail } from './rail';
@@ -23,6 +23,13 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
   const rail = planRail(layout, bounds);
   const buildings = placeBuildings(rng, layout, districts, scale, rail);
   const transit = planTransit(layout, districts, buildings, rail);
+  const id = (kind: string) => buildings.find((b) => b.kind === kind)?.id ?? null;
+  const power = {
+    plant: id('power_plant'),
+    substations: districts.map((d) => buildings.find((b) => b.kind === 'substation' && b.district === d.id)?.id ?? null),
+    depot: id('utility_depot'),
+    depotSpots: utilityCrews(scale),
+  };
   return {
     seed,
     scale,
@@ -32,6 +39,7 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
     rail,
     buildings,
     transit,
+    power,
     parks: layout.parks,
     trees: placeTrees(rng, bounds, layout.network, buildings, layout.parks, rail),
     lamps: placeLamps(layout.network, buildings, rail, transit.stops),

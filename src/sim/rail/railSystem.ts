@@ -305,9 +305,12 @@ export class RailSystem {
           if (needed) this.setState(c, 'warning');
           break;
         case 'warning':
-          c.barrier = Math.min(1, Math.max(0, (c.timer - (WARNING_TIME - BARRIER_LOWER_TIME)) / BARRIER_LOWER_TIME));
+          // (The barrier pauses while someone is still on the crossing.)
+          if (!c.occupied) c.barrier = Math.max(c.barrier, Math.min(1, Math.max(0, (c.timer - (WARNING_TIME - BARRIER_LOWER_TIME)) / BARRIER_LOWER_TIME)));
           if (!needed) this.setState(c, 'open');
-          else if (c.timer >= WARNING_TIME) this.setState(c, 'closed');
+          // Barriers only come down on an empty crossing: a long, slow lorry that
+          // entered just before the lights started gets off first.
+          else if (c.timer >= WARNING_TIME && !c.occupied) this.setState(c, 'closed');
           break;
         case 'closed':
           c.barrier = 1;

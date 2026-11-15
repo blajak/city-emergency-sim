@@ -51,6 +51,58 @@ export function createWindowTexture(): THREE.CanvasTexture {
   );
 }
 
+/** Tiles per side of the night-window texture (each tile is one bay × one floor). */
+export const WINDOW_LIGHT_TILES = 8;
+
+/**
+ * Night glow for `createWindowTexture`: an 8 × 8 block of windows, about 60%
+ * of them lit in slightly different warm tones, the rest dark. Used as an
+ * emissive map with repeat 1/8 so neighbouring windows differ.
+ */
+export function createWindowLightTexture(seed: number): THREE.CanvasTexture {
+  let state = seed >>> 0;
+  const random = () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const tile = 64;
+  const n = WINDOW_LIGHT_TILES;
+  const texture = canvasTexture(tile * n, tile * n, (ctx) => {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, tile * n, tile * n);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (random() > 0.6) continue;
+        const warm = ['#ffd27a', '#ffe1a0', '#ffc766', '#fff0c8', '#f6d9a8'][Math.floor(random() * 5)];
+        const x = i * tile;
+        const y = j * tile;
+        ctx.fillStyle = warm;
+        ctx.fillRect(x + 18, y + 12, 28, 34);
+        ctx.fillStyle = '#3a2a10';
+        ctx.fillRect(x + 31, y + 12, 2, 34);
+        ctx.fillRect(x + 18, y + 24, 28, 2);
+      }
+    }
+  });
+  repeating(texture);
+  texture.repeat.set(1 / n, 1 / n);
+  return texture;
+}
+
+/** Night glow for `createShopTexture`: the shop window is lit. */
+export function createShopLightTexture(): THREE.CanvasTexture {
+  return repeating(
+    canvasTexture(64, 64, (ctx) => {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.fillStyle = '#ffe2a6';
+      ctx.fillRect(6, 18, 52, 42);
+      ctx.fillStyle = '#2a2010';
+      ctx.fillRect(31, 18, 2, 42);
+    }),
+  );
+}
+
 /** Ground-floor shopfront: large glazing with an awning-coloured band on top. */
 export function createShopTexture(): THREE.CanvasTexture {
   return repeating(

@@ -13,6 +13,7 @@ import { DebugOverlay } from './ui/debugOverlay';
 import { DispatchPanel } from './ui/dispatchPanel';
 import { BuildingInteraction } from './ui/interaction';
 import { BusCard } from './ui/busCard';
+import { PowerCard } from './ui/powerCard';
 import { StationCard } from './ui/stationCard';
 import { Toast } from './ui/toast';
 
@@ -42,6 +43,12 @@ const hud = requireElement('hud');
 const toast = new Toast(hud);
 const stationCard = new StationCard(hud, sim, (message, tone) => toast.show(message, tone));
 const busCard = new BusCard(hud, sim);
+const powerCard = new PowerCard(hud, sim, (message, tone) => toast.show(message, tone));
+const closeCards = () => {
+  stationCard.close();
+  busCard.close();
+  powerCard.close();
+};
 const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera, sim, {
   onReport(type, building) {
     const result = sim.reportIncident(type, building.id);
@@ -52,31 +59,45 @@ const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera,
   },
   onRejected: (message) => toast.show(message, 'error'),
   onStation: (building, screen) => {
-    busCard.close();
+    closeCards();
     stationCard.open(building, screen);
   },
   onBus: (bus, screen) => {
-    stationCard.close();
+    closeCards();
     busCard.openBus(bus, screen);
   },
   onStop: (stop, screen) => {
-    stationCard.close();
+    closeCards();
     busCard.openStop(stop, screen);
   },
-  onEmptyClick: () => {
-    stationCard.close();
-    busCard.close();
+  onPowerPlant: (screen) => {
+    closeCards();
+    powerCard.open(screen);
   },
+  onEmptyClick: closeCards,
 });
 const panel = new DispatchPanel(hud, sim, {
   onToolChange: (tool) => {
     interaction.setTool(tool);
-    if (tool) {
-      stationCard.close();
-      busCard.close();
-    }
+    if (tool) closeCards();
+  },
+  onNightChange: (value) => {
+    night = value;
+    applyLighting();
   },
 });
+
+/** Day / night and per-district power: sky, windows, lamps, headlights. */
+let night = false;
+let powerVersion = -1;
+function applyLighting(): void {
+  powerVersion = sim.power.version;
+  const powered = sim.power.districts.map((d) => d.on);
+  ctx.setNight(night);
+  cityView.setLighting(night, powered);
+  vehiclesView.setNight(night);
+  labelsView.setPower(powered);
+}
 
 /** Keep the city centred in the part of the screen the panel doesn't cover. */
 function updateViewInsets(): void {
@@ -88,14 +109,17 @@ function updateViewInsets(): void {
 updateViewInsets();
 window.addEventListener('resize', updateViewInsets);
 
-ctx.scene.add(createCityView(city), vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, railView.group, interaction.highlight.object);
+const cityView = createCityView(city);
+applyLighting();
+ctx.scene.add(cityView.group, vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, railView.group, interaction.highlight.object);
 
 const debug = params.has('debug') ? new DebugOverlay(hud, sim, ctx.renderer) : null;
 
 function frame(dt: number): void {
   debug?.update(dt * 1000);
   const alpha = sim.advance(dt);
-  vehiclesView.update([...sim.traffic.vehicles, ...sim.buses.yard], alpha, sim.time);
+  if (sim.power.version !== powerVersion) applyLighting();
+  vehiclesView.update([...sim.traffic.vehicles, ...sim.buses.yard, ...sim.power.drivewayVans], alpha, sim.time);
   signalsView.update();
   railView.update(alpha, sim.time);
   incidentsView.update(sim.dispatcher, sim.time);
@@ -103,6 +127,7 @@ function frame(dt: number): void {
   panel.render();
   stationCard.render();
   busCard.render();
+  powerCard.render();
 }
 ctx.start(frame);
 
