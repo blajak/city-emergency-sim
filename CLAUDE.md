@@ -11,6 +11,10 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   docs are in **English**.
 - You are the main architect; the user tests and decides. Plan first, then implement
   milestone by milestone. Ask before big design choices.
+- The user may also work from a **Windows PC** (and drive sessions from a phone): keep
+  everything needed in the repo (this file, SPEC-v2.md, `.claude/launch.json`); after a
+  clone run `npm install`. Shell examples here are POSIX; on Windows use PowerShell
+  syntax for env vars (`$env:STRESS=1; npx vitest run src/sim/stress.test.ts`).
 - Work on `main` (the user chose this). **Commit and push only when the user asks**;
   end commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   After pushing, check CI: `gh run list --limit 1` / `gh run watch <id> --exit-status`.
@@ -22,12 +26,21 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   (performance foundation, city generator v2, railway, buses, logistics, power + night).
 - **Next: milestone 7** integration & polish (incident priorities,
   crossing-aware routing for emergency units, vehicle info card + follow camera,
-  "city pulse" panel, README/GIF update). Details and user decisions are in SPEC-v2.md.
+  "city pulse" panel, performance pass, README/GIF update). Details in SPEC-v2.md
+  ("Emergency services", "UI", "Milestones"). Not planned with the user yet: start by
+  proposing a plan and asking about open choices (as for milestones 4–6). The user
+  asked to keep the vehicle info card for milestone 7.
+- User decisions so far (details in SPEC-v2.md): 3 bus lines, stops ~300 m, no
+  passenger counts; buses leave/enter a depot yard; lorries only to bays ≥ 18 m (shops get
+  vans); garbage trucks only in cities with a waste depot; no visible power lines; 1 utility
+  crew in small towns, 2 in big cities; manual blackouts stay until switched on or a crew is
+  sent; crew vans park on a driveway, never on the road side.
 
 ## Architecture (src/)
 
 - `sim/` — pure simulation, no DOM / Three.js, fully testable in Node.
-  - `Simulation.ts` fixed 50 ms steps: signals → rail → traffic → dispatcher.
+  - `Simulation.ts` fixed 50 ms steps: signals → rail → traffic → dispatcher → buses →
+    logistics → power (each system gets the traffic events: parked / halted / departed).
   - `world/` city generator: `roadNetwork.ts` (grid, blocks, rail corridor, `?scale`),
     `districts.ts`, `buildings.ts` (block sites + frontage + delivery bays),
     `rail.ts` (tracks, station/hub/terminal sites), `decor.ts`, `roadIndex.ts`.
@@ -46,7 +59,10 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
     stalls; `transit/busSystem.ts` runs buses (timetable, stops, depot yard moves).
 - `render/` — Three.js views reading sim state (merged geometry via `GeometryBuilder`,
   instancing for vehicles/trees/sleepers, sign texture atlas in `buildingKinds.ts`).
-- `ui/` — dispatcher panel, station card, interaction (picking), toasts, debug overlay.
+- `ui/` — dispatcher panel (time, report tools, incidents, units, power, night toggle),
+  station card, bus/stop card (`busCard.ts`), power plant card (`powerCard.ts`),
+  interaction (picking buildings, buses, stops), toasts, debug overlay.
+- Keys: F fire, C crime, N night, Space pause, 1/2 speed, WASD/arrows move.
 - URL params: `?scale=1..10` (default 10), `?seed=`, `?cars=`, `?debug`.
 
 ## Hard-won rules (don't break them)
@@ -75,17 +91,21 @@ Traffic safety took many iterations; stress tests found each of these:
 - Night/power rendering: buildings and lamps are merged per district (`setLighting(night,
   powered)` on the city view); `sim.power.version` changes on every power change.
 - Level crossings: barriers only come down once the crossing is empty (long lorries).
-- Known (pre-existing, not bus-related): the busy centre junction of seed 7/99 at scale 10 can
-  hold a unit > 60 s or cars > 120 s under 300 cars.
+- Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
+  or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
+  line for ~20 m of room beyond the junction (they always get through).
 
 ## How to verify changes
 
-- `npx tsc --noEmit`, `npm test` (≈50 tests, ~45 s), `npm run build`.
-- For anything touching traffic/rail, also run a temporary stress test (several seeds,
-  scale 1 and 10, 10 sim-minutes, incidents every 10–20 s) checking vehicle overlaps
-  (use `SpatialGrid` + `obbOverlap` as in `src/sim/perf.test.ts`), train-on-occupied-
-  crossing, and units standing still > 60 s. Delete temporary `src/zz_*.test.ts` files.
+- `npx tsc --noEmit`, `npm test` (≈57 tests, ~1–2 min), `npm run build`.
+- For anything touching traffic/rail/vehicles, also run the on-demand stress test
+  `src/sim/stress.test.ts` (skipped in `npm test`):
+  `STRESS=1 SEEDS=1337,7,42,99,5 SCALES=1,10 MINUTES=12 DARK=0 npx vitest run src/sim/stress.test.ts`
+  and again with `DARK=2` (blackouts → unsignalised junctions). Goal: 0 overlaps, 0 trains
+  on occupied crossings, no growing jams (a handful of single "still" reports is normal).
+  Collision checks in tests use `src/sim/testing/overlap.ts` (tractor and trailer are
+  separate bodies). Debug scripts go in temporary `src/zz_*.test.ts` files — delete them.
 - Browser: dev server via `.claude/launch.json` ("dev", port 5173). In dev,
-  `window.__sim = { city, sim, ctx }` helps to move the camera / step the sim. When the
-  browser pane is hidden the render loop pauses: step with `sim.step()` and move the
-  camera from JS, then take a screenshot.
+  `window.__sim = { city, sim, ctx, frame }` helps to move the camera / step the sim. When
+  the browser pane is hidden the render loop pauses: step with `sim.step()`, move the
+  camera from JS, call `frame(0)` to draw, then take a screenshot.
