@@ -13,6 +13,10 @@ const POLICE_BLUE = new THREE.Color(0x1f4fa3);
 const DISPLAY = new THREE.Color(0x1b1b1b);
 const DISPLAY_TEXT = new THREE.Color(0xffb300);
 const DOOR = new THREE.Color(0x1e2a33);
+const CHASSIS = new THREE.Color(0x2b2e31);
+const TRAILER_SIDE = new THREE.Color(0xe9ecef);
+const GARBAGE_BODY = new THREE.Color(0x3f6e3a);
+const VAN_WHITE = new THREE.Color(0xf7f7f5);
 
 /** Where flashing beacons sit on a model (local coordinates, front = +z). */
 export interface BeaconMount {
@@ -121,6 +125,54 @@ export function buildVehicleModel(model: VehicleModel, length: number, width: nu
       box(0, hl + 0.05, hw - 0.6, 0.02, 2.68, 2.82, DISPLAY_TEXT);
       for (const z of [hl - 1.35, -0.6]) box(-hw - 0.02, z, 0.02, 0.6, 0.35, 2.5, DOOR);
       lights(0.55);
+      break;
+    }
+    case 'truck': {
+      // Tractor unit: painted cab at the front, chassis with the fifth wheel behind it.
+      const cab = 2.3;
+      wheels(0.55, [hl - 1.2, -hl + 1.1, -hl + 2.3]);
+      box(0, hl - cab / 2, hw, cab / 2, 0.55, 3.2, paint);
+      box(0, hl + 0.01, hw - 0.15, 0.02, 1.7, 2.8, GLASS);
+      box(0, hl - 0.9, hw + 0.01, 0.5, 1.8, 2.7, GLASS);
+      box(0, hl - cab / 2 - 0.2, hw - 0.3, cab / 2 - 0.3, 3.2, 3.6, paint); // roof spoiler
+      box(0, -cab / 2 + 0.3, hw - 0.25, hl - cab / 2 - 0.3, 0.45, 1.05, CHASSIS);
+      lights(0.7);
+      break;
+    }
+    case 'trailer': {
+      // Box trailer: light sides with a painted band and a painted front wall.
+      wheels(0.55, [-hl + 1.4, -hl + 2.7, -hl + 4]);
+      box(0, 0, hw, hl, 1.15, 3.95, TRAILER_SIDE);
+      box(0, 0, hw + 0.02, hl - 0.4, 2.2, 2.9, paint);
+      box(0, hl - 0.05, hw, 0.05, 1.15, 3.95, paint);
+      box(0, 0, hw - 0.3, hl - 0.3, 0.75, 1.15, CHASSIS);
+      for (const sx of [-1, 1]) box(sx * (hw - 0.3), -hl - 0.01, 0.2, 0.02, 1.0, 1.15, TAILLIGHT);
+      break;
+    }
+    case 'garbage_truck': {
+      // Painted cab, green compactor body with a rear loading hopper.
+      const cab = 2.2;
+      wheels(0.55, [hl - 1.3, -hl + 2.2, -hl + 3.4]);
+      box(0, hl - cab / 2, hw, cab / 2, 0.5, 2.9, paint);
+      box(0, hl + 0.01, hw - 0.15, 0.02, 1.6, 2.6, GLASS);
+      box(0, hl - 0.85, hw + 0.01, 0.5, 1.7, 2.5, GLASS);
+      box(0, -cab / 2 + 0.2, hw, hl - cab / 2 - 0.4, 0.6, 3.2, GARBAGE_BODY);
+      box(0, -hl + 0.5, hw - 0.1, 0.5, 0.5, 2.6, paint);
+      box(0, -hl + 0.02, hw - 0.5, 0.02, 0.9, 1.6, CHASSIS);
+      lights(0.7);
+      break;
+    }
+    case 'delivery_van': {
+      // White van with a company-coloured band and roof edge.
+      const cabFront = hl - 0.9;
+      wheels(0.66, [hl - 0.85, -hl + 0.95]);
+      box(0, -0.45, hw, hl - 0.45, 0.32, 2.4, VAN_WHITE);
+      box(0, cabFront + 0.45, hw - 0.04, 0.45, 0.32, 1.05, VAN_WHITE);
+      box(0, -0.6, hw + 0.02, hl - 1.3, 1.0, 1.45, paint);
+      box(0, -0.45, hw - 0.1, hl - 0.6, 2.4, 2.48, paint);
+      box(0, cabFront - 0.02, hw - 0.12, 0.05, 1.15, 2.05, GLASS);
+      box(0, cabFront - 0.6, hw + 0.01, 0.45, 1.2, 1.95, GLASS);
+      lights(0.7);
       break;
     }
     case 'sedan':

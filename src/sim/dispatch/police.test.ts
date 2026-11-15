@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { obbOverlap } from '../math/geometry';
 import { Simulation } from '../Simulation';
+import { vehiclesOverlap } from '../testing/overlap';
 import type { Vehicle } from '../traffic/vehicle';
 import { generateCity } from '../world/cityGenerator';
 
@@ -16,15 +16,9 @@ function run(sim: Simulation, seconds: number, until: () => boolean = () => fals
 }
 
 function assertNoOverlap(vehicles: readonly Vehicle[], time: number): void {
-  const fp = (v: Vehicle) => ({
-    center: { x: v.pose.x, z: v.pose.z },
-    halfW: v.width / 2 - 0.2,
-    halfD: v.length / 2 - 0.2,
-    rotation: v.pose.yaw,
-  });
   for (let i = 0; i < vehicles.length; i++) {
     for (let j = i + 1; j < vehicles.length; j++) {
-      if (obbOverlap(fp(vehicles[i]), fp(vehicles[j]))) {
+      if (vehiclesOverlap(vehicles[i], vehicles[j])) {
         throw new Error(`t=${time.toFixed(2)} ${vehicles[i].role} ${vehicles[i].id} overlaps ${vehicles[j].role} ${vehicles[j].id}`);
       }
     }

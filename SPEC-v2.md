@@ -159,7 +159,20 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    pull back in and the opposite lane (and its entries) clear; oncoming traffic brakes for
    an overtaker. Buses yield to responders (pulling further right, left edge aligned with
    cars). Click a bus or stop for a card with next stops / departures.
-5. **Logistics**: articulated trucks with deliveries, garbage trucks with collection routes.
+5. ✅ **Logistics**: articulated lorries (tractor + trailer drawn separately, each body on
+   the path) load at the freight hub / factories and deliver to warehouses, or from
+   warehouses to supermarkets and the mall; delivery vans go from warehouses to shops
+   (shop bays are too short for a trailer). Both load and unload at off-road delivery bays
+   and drive back; a bay already used by another delivery is not chosen. Fleet: ~20 lorries
+   and ~20 vans in the 10× city, 1 lorry and 2 vans in the small town. Garbage trucks (only
+   in cities with a waste depot) leave every 5 min, collect from 8 nearby buildings (mostly
+   industrial, ordered by driving time) stopping in the lane, then unload at the depot.
+   Safety work found by stress tests: long vehicles (> 10 m) need wider gaps between
+   junction movements; a long vehicle's tail on the lane it just left is seen by traffic
+   there; the leader is the vehicle whose *rear* is closest; vehicles heading for a kerb
+   spot held by a bus/lorry wait fully behind it (or park in front when already beside it);
+   no in-lane stop approach towards the kerb past parked vehicles. Vehicle info card stays
+   in milestone 7.
 6. **Power grid and night**: plant, substations, power lines, blackout card,
    fire-triggered blackout, utility crew repairs, day/night switch, dark districts
    and unsignalised junctions.

@@ -45,6 +45,10 @@ pass, and it works the scene before heading back.
   drive around them when the opposite lane is clear. Buses pull out of the depot yard,
   join traffic, and go back to park there after their shift. Click a bus or a stop for its
   line, next stops and next departures.
+- **Logistics.** Articulated lorries bring goods from the freight hub and factories to
+  warehouses and on to supermarkets and the mall; delivery vans serve the shops. They load
+  and unload in the delivery bays, off the road. In bigger cities garbage trucks do their
+  rounds, stopping in the lane at each building, and unload at the waste depot.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
 

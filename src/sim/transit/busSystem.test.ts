@@ -3,7 +3,7 @@ import { obbOverlap } from '../math/geometry';
 import { createRng } from '../math/rng';
 import { SpatialGrid, obbBox } from '../math/spatialGrid';
 import { Simulation } from '../Simulation';
-import type { Pose } from '../traffic/vehicle';
+import { type Pose, vehicleBodies } from '../traffic/vehicle';
 import { generateCity } from '../world/cityGenerator';
 
 interface Body {
@@ -19,7 +19,10 @@ function findOverlap(bodies: readonly Body[]): string | null {
   const grid = new SpatialGrid<Body>(12);
   for (const b of bodies) {
     const box = footprint(b);
-    for (const other of grid.query(obbBox(box))) if (obbOverlap(box, footprint(other))) return `${b.id} / ${other.id}`;
+    for (const other of grid.query(obbBox(box))) {
+      if (b.id.split('.')[0] === other.id.split('.')[0] && b.id.includes('.')) continue; // tractor and its own trailer
+      if (obbOverlap(box, footprint(other))) return `${b.id} / ${other.id}`;
+    }
     grid.insert(b, obbBox(box));
   }
   return null;
@@ -56,7 +59,7 @@ describe('buses', () => {
         served.set(bus.line.name, set);
       }
       const bodies: Body[] = [
-        ...sim.traffic.vehicles.map((v) => ({ id: `${v.role}${v.id}`, pose: v.pose, width: v.width, length: v.length })),
+        ...sim.traffic.vehicles.flatMap((v) => vehicleBodies(v).map((b, k) => ({ id: `${v.role}${v.id}.${k}`, ...b }))),
         ...sim.buses.yard.map((y, i) => ({ id: `yard${i}`, pose: y.pose, width: 2.55, length: 11 })),
       ];
       const hit = findOverlap(bodies);

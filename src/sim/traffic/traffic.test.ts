@@ -1,20 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { type OBB, obbOverlap } from '../math/geometry';
 import { Simulation } from '../Simulation';
+import { vehiclesOverlap } from '../testing/overlap';
 import { generateCity } from '../world/cityGenerator';
 import { buildLaneGraph, type Connector } from './laneGraph';
-import type { Vehicle } from './vehicle';
 
 const city = generateCity(1337);
-
-function footprint(v: Vehicle, shrink: number): OBB {
-  return {
-    center: { x: v.pose.x, z: v.pose.z },
-    halfW: v.width / 2 - shrink,
-    halfD: v.length / 2 - shrink,
-    rotation: v.pose.yaw,
-  };
-}
 
 describe('buildLaneGraph', () => {
   const graph = buildLaneGraph(city.roads);
@@ -65,7 +55,7 @@ describe('civilian traffic', () => {
           for (let j = i + 1; j < vehicles.length; j++) {
             const a = vehicles[i];
             const b = vehicles[j];
-            if (obbOverlap(footprint(a, 0.2), footprint(b, 0.2))) {
+            if (vehiclesOverlap(a, b, 0.2)) {
               throw new Error(
                 `t=${sim.time.toFixed(2)}s vehicles ${a.id} (seg ${a.segment}, s=${a.s.toFixed(1)}) and ` +
                   `${b.id} (seg ${b.segment}, s=${b.s.toFixed(1)}) overlap`,

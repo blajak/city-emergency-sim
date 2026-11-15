@@ -24,6 +24,8 @@ const STRAIGHT_SPEED_LIMIT = 10;
  * tight turns.
  */
 const CONFLICT_DISTANCE = 3.4;
+/** Same, for movements where a bus or an articulated lorry is involved (they cut further inside). */
+const LONG_CONFLICT_DISTANCE = 5.5;
 
 interface SegmentBase {
   id: SegmentId;
@@ -50,6 +52,8 @@ export interface Connector extends SegmentBase {
   turn: Turn;
   /** Connectors that may not be used at the same time as this one. */
   conflicts: SegmentId[];
+  /** Extra connectors that conflict when one of the two vehicles is long (bus, lorry). */
+  longConflicts: SegmentId[];
 }
 
 export type Segment = Lane | Connector;
@@ -110,7 +114,9 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
     }
     for (const a of atNode) {
       for (const b of atNode) {
-        if (a !== b && connectorsConflict(a, b)) a.conflicts.push(b.id);
+        if (a === b) continue;
+        if (connectorsConflict(a, b)) a.conflicts.push(b.id);
+        else if (a.fromLane !== b.fromLane && polylineDistance(a.points, b.points) < LONG_CONFLICT_DISTANCE) a.longConflicts.push(b.id);
       }
     }
   }
@@ -151,6 +157,7 @@ function makeConnector(id: SegmentId, nodeId: NodeId, from: Lane, to: Lane): Con
     length: polylineLength(points),
     speedLimit,
     conflicts: [],
+    longConflicts: [],
   };
 }
 

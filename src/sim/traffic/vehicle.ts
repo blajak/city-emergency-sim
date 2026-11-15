@@ -4,8 +4,22 @@ import { BUS_LENGTH, BUS_WIDTH } from '../world/constants';
 import type { SegmentId } from './laneGraph';
 
 export type VehicleId = number;
-export type VehicleModel = 'sedan' | 'hatchback' | 'van' | 'fire_engine' | 'police_car' | 'bus';
-export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus';
+export type VehicleModel =
+  | 'sedan'
+  | 'hatchback'
+  | 'van'
+  | 'fire_engine'
+  | 'police_car'
+  | 'bus'
+  /** Articulated lorry: `truck` is the tractor, drawn with a `trailer`. */
+  | 'truck'
+  | 'trailer'
+  | 'garbage_truck'
+  | 'delivery_van';
+export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus' | 'truck' | 'garbage' | 'delivery';
+
+/** Roles that stop at kerb spots for a short while and then leave on their own. */
+export const SERVICE_ROLES: readonly VehicleRole[] = ['bus', 'truck', 'garbage', 'delivery'];
 
 /**
  * - driving: normal traffic participant
@@ -28,7 +42,24 @@ export const VEHICLE_DIMENSIONS: Record<VehicleModel, VehicleDimensions> = {
   fire_engine: { length: 8.2, width: 2.5 },
   police_car: { length: 4.8, width: 1.9 },
   bus: { length: BUS_LENGTH, width: BUS_WIDTH },
+  // Whole articulated lorry (tractor + trailer), as traffic sees it.
+  truck: { length: 15.2, width: 2.55 },
+  trailer: { length: 11.6, width: 2.55 },
+  garbage_truck: { length: 9.5, width: 2.5 },
+  delivery_van: { length: 5.4, width: 2.05 },
 };
+
+/** Geometry of the articulated lorry, measured back from the front bumper. */
+export const TRUCK = {
+  /** Length of the tractor unit. */
+  tractorLength: 6,
+  /** Fifth wheel (kingpin) behind the front bumper. */
+  kingpin: 4.6,
+  /** Trailer front overhang ahead of the kingpin. */
+  trailerOverhang: 1,
+  /** Trailer axles behind the kingpin (the trailer pivots there). */
+  trailerAxle: 8.5,
+} as const;
 
 /** Position of the vehicle body centre and heading (Three.js rotation.y). */
 export interface Pose {
@@ -90,6 +121,24 @@ export interface Vehicle {
   pose: Pose;
   /** Pose at the previous tick, for render interpolation. */
   prevPose: Pose;
+  /** Articulated lorries: the trailer's pose (`pose` is the tractor's), else null. */
+  trailer: Pose | null;
+  prevTrailer: Pose | null;
+}
+
+export interface Body {
+  pose: Pose;
+  length: number;
+  width: number;
+}
+
+/** Rigid parts of a vehicle (two for an articulated lorry), for drawing and collision checks. */
+export function vehicleBodies(v: Pick<Vehicle, 'model' | 'pose' | 'trailer' | 'length' | 'width'>): Body[] {
+  if (v.model !== 'truck' || !v.trailer) return [{ pose: v.pose, length: v.length, width: v.width }];
+  return [
+    { pose: v.pose, length: TRUCK.tractorLength, width: v.width },
+    { pose: v.trailer, length: VEHICLE_DIMENSIONS.trailer.length, width: v.width },
+  ];
 }
 
 /** Driving to an incident with sirens on: gets priority at junctions and on the road. */

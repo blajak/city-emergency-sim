@@ -1,6 +1,6 @@
 import { samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
-import { rightOf } from '../math/vec2';
+import { type Vec2, normalize, rightOf, sub } from '../math/vec2';
 import { type RoutePoint, Router } from '../routing/router';
 import type { LaneCrossing } from '../rail/crossings';
 import { NO_SIGNALS, type SignalLookup } from '../signals/signalSystem';
@@ -8,12 +8,15 @@ import { DEFAULT_DRIVER, idmFreeTerm, idmInteractionTerm } from './idm';
 import type { Connector, Lane, LaneGraph, Segment, SegmentId, Turn } from './laneGraph';
 import {
   type Pose,
+  SERVICE_ROLES,
+  TRUCK,
   VEHICLE_DIMENSIONS,
   type Vehicle,
   type VehicleModel,
   type VehicleRole,
   isResponding,
   parkingOffset,
+  vehicleBodies,
 } from './vehicle';
 
 /** How far ahead drivers look for leaders, stop lines and slower segments. */
@@ -67,6 +70,8 @@ const IN_LANE_STOP_LATERAL = 0.6;
 const IN_LANE_ARRIVAL_TOLERANCE = 5;
 /** A bus heading for an in-lane stop moves towards the kerb from this distance. */
 const IN_LANE_APPROACH = 25;
+/** Vehicles longer than this (buses, lorries) need more room between junction movements, m. */
+const LONG_VEHICLE = 10;
 /** Speed while driving around a halted bus, m/s. */
 const OVERTAKING_SPEED = 6;
 /** Room needed in front of the bus to pull back in, beyond the overtaking car's length. */
@@ -118,6 +123,8 @@ export class TrafficSystem {
   private allBySegment = new Map<SegmentId, Vehicle[]>();
   /** Vehicles overtaking a halted bus, per lane they are on (rebuilt every step). */
   private overtakersBySegment = new Map<SegmentId, Vehicle[]>();
+  /** Vehicles whose tail is still on the segment they just left, keyed by that segment (rebuilt every step). */
+  private tailsBySegment = new Map<SegmentId, Vehicle[]>();
   private byId = new Map<number, Vehicle>();
   private nextId = 0;
   readonly router: Router;
@@ -181,8 +188,9 @@ export class TrafficSystem {
     const vehicle = this.createVehicle(spec.role, spec.model, spec.color, spec.at.segment, spec.at.s);
     vehicle.maneuver = 'parked';
     vehicle.lateral = parkingOffset(vehicle.width);
-    vehicle.pose = this.computePose(vehicle);
+    this.updatePose(vehicle);
     vehicle.prevPose = { ...vehicle.pose };
+    vehicle.prevTrailer = vehicle.trailer && { ...vehicle.trailer };
     this.vehicles.push(vehicle);
     return vehicle;
   }
@@ -301,9 +309,12 @@ export class TrafficSystem {
       waitingForKerb: null,
       pose: { x: 0, z: 0, yaw: 0 },
       prevPose: { x: 0, z: 0, yaw: 0 },
+      trailer: null,
+      prevTrailer: null,
     };
-    vehicle.pose = this.computePose(vehicle);
+    this.updatePose(vehicle);
     vehicle.prevPose = { ...vehicle.pose };
+    vehicle.prevTrailer = vehicle.trailer && { ...vehicle.trailer };
     return vehicle;
   }
 
@@ -329,6 +340,7 @@ export class TrafficSystem {
 
   private updateManeuver(vehicle: Vehicle, dt: number): void {
     vehicle.prevPose = vehicle.pose;
+    vehicle.prevTrailer = vehicle.trailer;
     vehicle.v = 0;
     const curb = parkingOffset(vehicle.width);
     switch (vehicle.maneuver) {
@@ -355,16 +367,22 @@ export class TrafficSystem {
       case 'driving':
         break;
     }
-    vehicle.pose = this.computePose(vehicle);
+    this.updatePose(vehicle);
   }
 
   private blockedOnRight(vehicle: Vehicle): boolean {
+    // The tail of a long vehicle that has just turned off this lane may still be beside us.
+    const lane = this.segment(vehicle.segment);
+    for (const o of this.vehicles) {
+      if (o.previousSegment !== vehicle.segment || o.segment === vehicle.segment || o.s >= o.length) continue;
+      if (lane.length - (o.length - o.s) < vehicle.s + 1) return true;
+    }
     return (this.allBySegment.get(vehicle.segment) ?? []).some(
       (o) =>
         o !== vehicle &&
         o.segment === vehicle.segment &&
-        // A bus standing in a bay counts too: nobody pulls over onto it.
-        (o.maneuver === 'driving' || (o.role === 'bus' && o.maneuver !== 'arriving')) &&
+        // A bus or lorry standing in a bay counts too: nobody pulls over onto it (it leaves soon).
+        (o.maneuver === 'driving' || (SERVICE_ROLES.includes(o.role) && o.maneuver !== 'arriving')) &&
         o.lateral > vehicle.lateral &&
         o.s > vehicle.s - vehicle.length - 1 &&
         o.s - o.length < vehicle.s + 1,
@@ -379,7 +397,9 @@ export class TrafficSystem {
       if (front < vehicle.s + 10 && front + o.length > vehicle.s - MERGE_GAP_BEHIND) return false;
     }
     // A bus queuing behind for this kerb spot waits for us to leave; so does everyone behind it.
-    const waiting = (this.bySegment.get(vehicle.segment) ?? []).find((o) => o.waitingForKerb === vehicle.id && o.v < 0.5);
+    const waiting = (this.bySegment.get(vehicle.segment) ?? []).find(
+      (o) => o.waitingForKerb === vehicle.id && o.v < 0.5 && o.s < vehicle.s - vehicle.length,
+    );
     // A long vehicle that has just left the lane may still have its tail beside us.
     for (const other of this.vehicles) {
       if (other.previousSegment !== vehicle.segment || other.segment === vehicle.segment || other.s >= other.length) continue;
@@ -390,7 +410,8 @@ export class TrafficSystem {
       if (waiting && other.s <= waiting.s) continue;
       if (other.s > vehicle.s - MERGE_GAP_BEHIND && other.s - other.length < vehicle.s + 3) return false;
     }
-    if (vehicle.s < MERGE_GAP_BEHIND) {
+    // (Anyone entering the lane would queue behind the waiting vehicle.)
+    if (vehicle.s < MERGE_GAP_BEHIND && !waiting) {
       for (const id of this.incomingConnectors.get(vehicle.segment) ?? []) {
         if ((this.bySegment.get(id) ?? []).length > 0) return false;
       }
@@ -436,11 +457,19 @@ export class TrafficSystem {
         // Final segment of a route: come to a stop at the destination.
         obstacle(offset + vehicle.destination!.s + p.minGap, 0);
         if (!vehicle.stopInLane) {
-          // A bus still at the kerb spot (it leaves soon): wait behind it in the lane.
-          const blocker = this.busAtKerb(vehicle, vehicle.destination!);
+          // A bus or lorry still at the kerb spot (it leaves soon): wait behind it in the lane.
+          const blocker = this.serviceAtKerb(vehicle, vehicle.destination!);
           if (blocker) {
-            obstacle(offset + blocker.s - blocker.length, 0);
-            vehicle.waitingForKerb = blocker.id;
+            const gap = offset + blocker.s - blocker.length;
+            const ahead = blocker.s + vehicle.length + 1.5;
+            if (gap <= 0 && ahead <= seg.length - 6) {
+              // Already beside it (e.g. after overtaking pulled-over cars): park just in front instead.
+              vehicle.destination = { segment: vehicle.destination!.segment, s: ahead };
+            } else {
+              obstacle(gap, 0);
+              // Only someone fully behind it counts as waiting (the blocker may then pull out).
+              if (gap > 0) vehicle.waitingForKerb = blocker.id;
+            }
           }
         }
       }
@@ -553,7 +582,17 @@ export class TrafficSystem {
         // the stop line: both would enter the junction together, where paths cross.
         const queuingAtLine = other.maneuver === 'driving' && seg.length - other.s < STOP_ZONE;
         if (self && seg.kind === 'lane' && !queuingAtLine && this.sideBySide(self, other)) continue;
-        if (!best || other.s < best.s) best = other;
+        // The one whose rear is closest: a long bus can start behind a shorter car yet end further on.
+        if (!best || other.s - other.length < best.s - best.length) best = other;
+      }
+    }
+    if (seg.kind === 'lane') {
+      // A long vehicle that has just left this lane still has its tail at the end of it:
+      // seen as a vehicle whose front is beyond the lane end. Never passed side by side.
+      for (const other of this.tailsBySegment.get(segmentId) ?? []) {
+        if (other === self) continue;
+        const front = seg.length + other.s;
+        if (!best || front - other.length < best.s - best.length) best = { ...other, s: front };
       }
     }
     return best;
@@ -588,8 +627,10 @@ export class TrafficSystem {
       const holders = this.reservations.get(conflictId);
       if (holders && holders.size > 0) return false;
     }
+    if (this.longConflict(vehicle, connector)) return false;
     if (connector.turn === 'left' && this.oncomingHasPriority(connector)) return false;
     if (this.overtakerNearStart(connector.toLane, vehicle)) return false;
+    if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
     // Do not block the junction if the exit lane is backed up.
     const tail = this.lastInLine(connector.toLane);
     if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
@@ -615,9 +656,11 @@ export class TrafficSystem {
         revoke.push(holder);
       }
     }
+    if (this.longConflict(vehicle, connector)) return false;
     const tail = this.lastInLine(connector.toLane, vehicle);
     if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
     if (this.overtakerNearStart(connector.toLane, vehicle)) return false;
+    if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
 
     for (const holder of revoke) this.cancelReservation(holder);
     let holders = this.reservations.get(connector.id);
@@ -625,6 +668,17 @@ export class TrafficSystem {
     holders.add(vehicle);
     vehicle.reservation = connector.id;
     return true;
+  }
+
+  /** A nearby movement is in use and one of the two vehicles is long (bus, lorry: they cut corners more). */
+  private longConflict(vehicle: Vehicle, connector: Connector): boolean {
+    const long = vehicle.length > LONG_VEHICLE;
+    for (const id of connector.longConflicts) {
+      for (const holder of this.reservations.get(id) ?? []) {
+        if (long || holder.length > LONG_VEHICLE) return true;
+      }
+    }
+    return false;
   }
 
   private canStopBeforeJunction(vehicle: Vehicle): boolean {
@@ -689,8 +743,8 @@ export class TrafficSystem {
    * be passed in the lane (fire engines on their way back), which just drive on.
    */
   private canYield(v: Vehicle): boolean {
-    // Buses are wide too, but pull over further so their left side lines up with a car's.
-    const fits = v.width <= MAX_CIVILIAN_WIDTH || v.role === 'bus';
+    // Buses and lorries are wide too, but pull over further so their left side lines up with a car's.
+    const fits = v.width <= MAX_CIVILIAN_WIDTH || SERVICE_ROLES.includes(v.role);
     return !v.sirens && v.maneuver === 'driving' && fits && v.overtaking === null;
   }
 
@@ -700,7 +754,14 @@ export class TrafficSystem {
   }
 
   private alongside(a: Vehicle, b: Vehicle): boolean {
-    return Math.hypot(a.pose.x - b.pose.x, a.pose.z - b.pose.z) < (a.length + b.length) / 2 + 3;
+    if (!a.trailer && !b.trailer) return Math.hypot(a.pose.x - b.pose.x, a.pose.z - b.pose.z) < (a.length + b.length) / 2 + 3;
+    // Articulated lorries: beside the tractor or the trailer.
+    for (const x of vehicleBodies(a)) {
+      for (const y of vehicleBodies(b)) {
+        if (Math.hypot(x.pose.x - y.pose.x, x.pose.z - y.pose.z) < (x.length + y.length) / 2 + 3) return true;
+      }
+    }
+    return false;
   }
 
   /** Sideways target for a driving vehicle: pulled over, overtaking, or centred. */
@@ -715,8 +776,11 @@ export class TrafficSystem {
     if (vehicle.overtaking !== null) return onLane ? this.overtakingLateral(vehicle) : 0;
     const dest = vehicle.destination;
     if (vehicle.stopInLane && dest && onLane && vehicle.plan.length === 0 && dest.s - vehicle.s < IN_LANE_APPROACH) {
-      // Close to the kerb, unless someone is parked there (then stay centred to pass them).
-      return this.kerbTaken(vehicle, dest, 3) ? 0 : IN_LANE_STOP_LATERAL;
+      // Close to the kerb, unless someone stands at the kerb on the way (then stay centred to pass them).
+      const kerbBusy = (this.allBySegment.get(dest.segment) ?? []).some(
+        (o) => o !== vehicle && o.maneuver !== 'driving' && o.s > vehicle.s - vehicle.length - 2 && o.s - o.length < dest.s + 3,
+      );
+      return kerbBusy ? 0 : IN_LANE_STOP_LATERAL;
     }
     if (isResponding(vehicle)) {
       const passing = this.vehicles.some(
@@ -817,13 +881,25 @@ export class TrafficSystem {
   // Buses: kerb spots and overtaking a bus halted in the lane
   // -------------------------------------------------------------------------
 
-  /** A bus standing at (or pulling into / out of) the kerb spot ending at `dest`. */
-  private busAtKerb(vehicle: Vehicle, dest: RoutePoint): Vehicle | null {
+  /** A bus or delivery vehicle standing at (or pulling into / out of) the kerb spot ending at `dest`. */
+  private serviceAtKerb(vehicle: Vehicle, dest: RoutePoint): Vehicle | null {
     for (const o of this.allBySegment.get(dest.segment) ?? []) {
-      if (o === vehicle || o.role !== 'bus' || o.maneuver === 'driving') continue;
+      if (o === vehicle || !SERVICE_ROLES.includes(o.role) || o.maneuver === 'driving') continue;
       if (o.s > dest.s - vehicle.length - 1 && o.s - o.length < dest.s + 1) return o;
     }
     return null;
+  }
+
+  /**
+   * Heading for a kerb spot on `laneId` that a bus or lorry still occupies:
+   * enter only if the whole vehicle fits in the lane behind it, so it never
+   * waits with its tail in the junction.
+   */
+  private roomBehindKerbBlocker(vehicle: Vehicle, laneId: SegmentId): boolean {
+    const dest = vehicle.destination;
+    if (!dest || dest.segment !== laneId || vehicle.stopInLane || vehicle.plan.length > 2) return true;
+    const blocker = this.serviceAtKerb(vehicle, dest);
+    return !blocker || blocker.s - blocker.length >= vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN;
   }
 
   /** Someone already at the kerb where the vehicle would pull over. */
@@ -892,7 +968,7 @@ export class TrafficSystem {
   }
 
   /**
-   * The halted bus right in front of a waiting car, if the car may drive
+   * The halted vehicle (bus at a stop, garbage truck at a bin) right in front of a waiting car, if the car may drive
    * around it now: room to pull back in before the junction, no level
    * crossing, no responding vehicle around, and the opposite lane clear of
    * traffic that could meet it (including vehicles about to enter it).
@@ -903,7 +979,7 @@ export class TrafficSystem {
     const lane = this.segment(v.segment);
     if (lane.kind !== 'lane') return null;
     const bus = this.nearestAhead(lane.id, v);
-    if (!bus || bus.role !== 'bus' || !bus.halted || bus.segment !== lane.id) return null;
+    if (!bus || !bus.halted || bus.segment !== lane.id) return null;
     if (bus.s - bus.length - v.s > 10) return null;
     const tail = v.s - v.length;
     const endPass = bus.s + v.length + OVERTAKE_MERGE_ROOM;
@@ -927,6 +1003,10 @@ export class TrafficSystem {
       if (o.maneuver === 'parked' || o.maneuver === 'waiting_to_merge') continue;
       if (o.s - o.length < zoneEnd + 5) return null;
     }
+    // A long vehicle that has just left the opposite lane may still have its tail at its end.
+    for (const o of this.vehicles) {
+      if (o.previousSegment === opposite && o.segment !== opposite && o.s < o.length) return null;
+    }
     for (const id of this.incomingConnectors.get(opposite) ?? []) {
       if ((this.bySegment.get(id) ?? []).length > 0 || (this.reservations.get(id)?.size ?? 0) > 0) return null;
       const c = this.segment(id) as Connector;
@@ -942,6 +1022,7 @@ export class TrafficSystem {
 
   private integrate(vehicle: Vehicle, accel: number, dt: number): void {
     vehicle.prevPose = vehicle.pose;
+    vehicle.prevTrailer = vehicle.trailer;
     const v0 = vehicle.v;
     const v1 = Math.max(0, v0 + accel * dt);
     // When the vehicle comes to a stop within the step, use the exact stopping distance.
@@ -994,7 +1075,7 @@ export class TrafficSystem {
     ) {
       vehicle.v = 0;
       // A bay taken by someone else (e.g. a unit at an incident): stop in the lane instead.
-      if (vehicle.role === 'bus' && !vehicle.stopInLane && this.kerbTaken(vehicle, dest)) vehicle.stopInLane = true;
+      if (SERVICE_ROLES.includes(vehicle.role) && !vehicle.stopInLane && this.kerbTaken(vehicle, dest)) vehicle.stopInLane = true;
       if (vehicle.stopInLane) {
         // Keep the destination: it holds the vehicle at the stop until it is sent on.
         if (!vehicle.halted) {
@@ -1007,7 +1088,7 @@ export class TrafficSystem {
       }
     }
 
-    vehicle.pose = this.computePose(vehicle);
+    this.updatePose(vehicle);
   }
 
   /** Wandering vehicles keep one connector and the lane after it planned ahead. */
@@ -1029,6 +1110,55 @@ export class TrafficSystem {
       if (roll <= 0) return c.id;
     }
     return options[options.length - 1].id;
+  }
+
+  private updatePose(vehicle: Vehicle): void {
+    if (vehicle.model === 'truck') {
+      const { tractor, trailer } = this.articulatedPose(vehicle);
+      vehicle.pose = tractor;
+      vehicle.trailer = trailer;
+    } else {
+      vehicle.pose = this.computePose(vehicle);
+    }
+  }
+
+  /** Point on the path `back` metres behind the front bumper (into the previous segment, then straight on). */
+  private pointBehind(vehicle: Vehicle, back: number): Vec2 {
+    const seg = this.segment(vehicle.segment);
+    const s = vehicle.s - back;
+    if (s >= 0) return samplePolyline(seg.points, s).point;
+    const previous = vehicle.previousSegment !== null ? this.segment(vehicle.previousSegment) : null;
+    if (previous && previous.length + s >= 0) return samplePolyline(previous.points, previous.length + s).point;
+    const first = previous ?? seg;
+    const start = first.points[0];
+    const dir = normalize(sub(first.points[1], start));
+    const missing = previous ? -(previous.length + s) : -s;
+    return { x: start.x - dir.x * missing, z: start.z - dir.z * missing };
+  }
+
+  /**
+   * Articulated lorry: the tractor between its front bumper and the fifth
+   * wheel, the trailer between the fifth wheel and its axles, each on the path.
+   */
+  private articulatedPose(vehicle: Vehicle): { tractor: Pose; trailer: Pose } {
+    const front = this.pointBehind(vehicle, 0);
+    const kingpin = this.pointBehind(vehicle, TRUCK.kingpin);
+    const axle = this.pointBehind(vehicle, TRUCK.kingpin + TRUCK.trailerAxle);
+    const body = (ahead: Vec2, behind: Vec2, aheadOffset: number, length: number): Pose => {
+      const dir = normalize(sub(ahead, behind));
+      const side = rightOf(dir);
+      // Centre: from the leading reference point, back by half the body length minus its overhang.
+      const back = length / 2 - aheadOffset;
+      return {
+        x: ahead.x - dir.x * back + side.x * vehicle.lateral,
+        z: ahead.z - dir.z * back + side.z * vehicle.lateral,
+        yaw: Math.atan2(dir.x, dir.z),
+      };
+    };
+    return {
+      tractor: body(front, kingpin, 0, TRUCK.tractorLength),
+      trailer: body(kingpin, axle, TRUCK.trailerOverhang, VEHICLE_DIMENSIONS.trailer.length),
+    };
   }
 
   /**
@@ -1065,6 +1195,7 @@ export class TrafficSystem {
     this.bySegment = new Map();
     this.allBySegment = new Map();
     this.overtakersBySegment = new Map();
+    this.tailsBySegment = new Map();
     this.byId = new Map();
     const push = (map: Map<SegmentId, Vehicle[]>, v: Vehicle) => {
       const list = map.get(v.segment);
@@ -1073,6 +1204,11 @@ export class TrafficSystem {
     };
     for (const v of this.vehicles) {
       this.byId.set(v.id, v);
+      if (v.previousSegment !== null && v.s < v.length && v.maneuver === 'driving') {
+        const list = this.tailsBySegment.get(v.previousSegment);
+        if (list) list.push(v);
+        else this.tailsBySegment.set(v.previousSegment, [v]);
+      }
       if (v.overtaking !== null) push(this.overtakersBySegment, v);
       push(this.allBySegment, v);
       if (v.maneuver !== 'parked' && v.maneuver !== 'waiting_to_merge') push(this.bySegment, v);

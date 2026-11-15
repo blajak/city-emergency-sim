@@ -1,20 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { obbOverlap } from '../math/geometry';
 import { createRng } from '../math/rng';
 import { Simulation } from '../Simulation';
 import { generateCity } from '../world/cityGenerator';
+import { vehiclesOverlap } from '../testing/overlap';
 import type { Vehicle } from './vehicle';
 
 function overlapping(vehicles: readonly Vehicle[]): string | null {
-  const fp = (v: Vehicle) => ({
-    center: { x: v.pose.x, z: v.pose.z },
-    halfW: v.width / 2 - 0.2,
-    halfD: v.length / 2 - 0.2,
-    rotation: v.pose.yaw,
-  });
   for (let i = 0; i < vehicles.length; i++) {
     for (let j = i + 1; j < vehicles.length; j++) {
-      if (obbOverlap(fp(vehicles[i]), fp(vehicles[j]))) return `${vehicles[i].role} ${vehicles[i].id} / ${vehicles[j].role} ${vehicles[j].id}`;
+      if (vehiclesOverlap(vehicles[i], vehicles[j])) return `${vehicles[i].role} ${vehicles[i].id} / ${vehicles[j].role} ${vehicles[j].id}`;
     }
   }
   return null;
@@ -35,11 +29,15 @@ describe('emergency driving', () => {
       // (routing around closed crossings comes with a later milestone).
       for (let t = 0; t < 7 * 60 * 20; t++) {
         if (t % 500 === 0 && t < 5 * 60 * 20) sim.reportIncident(rng.chance(0.5) ? 'fire' : 'crime', rng.pick(targets).id);
-        const before = vehicles.map((v) => v.segment);
+        // (Lorries and buses come and go, so remember segments per vehicle.)
+        const before = new Map(vehicles.map((v) => [v, v.segment]));
         sim.step();
-        vehicles.forEach((v, i) => {
-          const prev = sim.traffic.segment(before[i]);
-          if (v.role !== 'civilian' && prev.kind === 'lane' && v.segment !== prev.id && sim.signals.lightFor(prev.id) === 'red') {
+        vehicles.forEach((v) => {
+          const was = before.get(v);
+          if (was === undefined) return;
+          const prev = sim.traffic.segment(was);
+          const unit = v.role === 'fire' || v.role === 'police';
+          if (unit && prev.kind === 'lane' && v.segment !== prev.id && sim.signals.lightFor(prev.id) === 'red') {
             redCrossings++;
           }
           if (v.role === 'civilian') maxPullOver = Math.max(maxPullOver, v.lateral);

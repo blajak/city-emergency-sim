@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { obbOverlap } from './math/geometry';
 import { createRng } from './math/rng';
-import { SpatialGrid, obbBox } from './math/spatialGrid';
 import { Simulation } from './Simulation';
-import type { Vehicle } from './traffic/vehicle';
+import { findOverlap } from './testing/overlap';
 import { generateCity } from './world/cityGenerator';
 
 /**
@@ -12,23 +10,6 @@ import { generateCity } from './world/cityGenerator';
  */
 const GENERATION_BUDGET_MS = 3000;
 const STEP_BUDGET_MS = 5;
-
-function footprint(v: Vehicle) {
-  return { center: { x: v.pose.x, z: v.pose.z }, halfW: v.width / 2 - 0.2, halfD: v.length / 2 - 0.2, rotation: v.pose.yaw };
-}
-
-/** First overlapping pair, using a grid so it stays fast with hundreds of vehicles. */
-function findOverlap(vehicles: readonly Vehicle[]): string | null {
-  const grid = new SpatialGrid<Vehicle>(12);
-  for (const v of vehicles) {
-    const box = footprint(v);
-    for (const other of grid.query(obbBox(box))) {
-      if (obbOverlap(box, footprint(other))) return `${v.role} ${v.id} / ${other.role} ${other.id}`;
-    }
-    grid.insert(v, obbBox(box));
-  }
-  return null;
-}
 
 describe('10× city', () => {
   const started = performance.now();

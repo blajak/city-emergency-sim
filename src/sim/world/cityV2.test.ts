@@ -63,7 +63,7 @@ describe('10× city layout', () => {
   it('gives shops and industry delivery bays that do not overlap', () => {
     const withBay = city.buildings.filter((b) => b.bay);
     expect(withBay.length).toBeGreaterThan(150);
-    expect(withBay.every((b) => ['shop', 'supermarket', 'mall', 'warehouse', 'factory', 'petrol_station', 'bus_depot'].includes(b.kind))).toBe(true);
+    expect(withBay.every((b) => ['shop', 'supermarket', 'mall', 'warehouse', 'factory', 'petrol_station', 'bus_depot', 'freight_hub', 'waste_depot'].includes(b.kind))).toBe(true);
     const bySide = new Map<string, { s: number; length: number }[]>();
     for (const b of withBay) {
       const bay = b.bay!;

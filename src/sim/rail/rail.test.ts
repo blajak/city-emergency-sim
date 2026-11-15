@@ -1,24 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { obbOverlap } from '../math/geometry';
-import { SpatialGrid, obbBox } from '../math/spatialGrid';
 import { Simulation } from '../Simulation';
+import { findOverlap } from '../testing/overlap';
 import type { Vehicle } from '../traffic/vehicle';
 import { generateCity } from '../world/cityGenerator';
 
 const city = generateCity(1337, { scale: 10 });
 
-function fp(v: Vehicle) {
-  return { center: { x: v.pose.x, z: v.pose.z }, halfW: v.width / 2 - 0.2, halfD: v.length / 2 - 0.2, rotation: v.pose.yaw };
-}
-
 function vehicleOverlap(vehicles: readonly Vehicle[]): boolean {
-  const grid = new SpatialGrid<Vehicle>(12);
-  for (const v of vehicles) {
-    const box = fp(v);
-    if (grid.query(obbBox(box)).some((o) => obbOverlap(box, fp(o)))) return true;
-    grid.insert(v, obbBox(box));
-  }
-  return false;
+  return findOverlap(vehicles) !== null;
 }
 
 describe('railway', () => {

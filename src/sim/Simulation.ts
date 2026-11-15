@@ -6,6 +6,7 @@ import { SignalSystem } from './signals/signalSystem';
 import { buildLaneGraph } from './traffic/laneGraph';
 import { TrafficSystem } from './traffic/trafficSystem';
 import { BusSystem } from './transit/busSystem';
+import { LogisticsSystem } from './logistics/logisticsSystem';
 import type { BuildingId, City } from './world/types';
 
 /** Fixed simulation step (20 ticks per second of sim time). */
@@ -31,6 +32,7 @@ export class Simulation {
   readonly traffic: TrafficSystem;
   readonly dispatcher: Dispatcher;
   readonly buses: BusSystem;
+  readonly logistics: LogisticsSystem;
   time = 0;
   timeScale: TimeScale = 1;
   /** Smoothed wall-clock cost of one simulation step, ms (for the debug overlay). */
@@ -50,8 +52,9 @@ export class Simulation {
     this.dispatcher = new Dispatcher(city, this.traffic, rng);
     for (let i = 0; i < (options.fireUnits ?? 1); i++) this.dispatcher.addUnit('fire');
     for (let i = 0; i < (options.policeUnits ?? 1); i++) this.dispatcher.addUnit('police');
-    // Buses before civilians, so cars are not spawned on top of them.
+    // Buses and lorries before civilians, so cars are not spawned on top of them.
     this.buses = new BusSystem(city, this.traffic, rng);
+    this.logistics = new LogisticsSystem(city, this.traffic, rng);
     this.traffic.spawnCivilians(options.civilianCount ?? 20);
   }
 
@@ -88,5 +91,6 @@ export class Simulation {
     this.time += SIM_DT;
     this.dispatcher.update(this.time, SIM_DT, events);
     this.buses.update(this.time, events);
+    this.logistics.update(this.time, events);
   }
 }

@@ -126,6 +126,9 @@ const BAY_LENGTH: Partial<Record<BuildingKind, number>> = {
   petrol_station: 14,
   // Where buses leave and enter the depot.
   bus_depot: 26,
+  // Lorries load at the freight hub; garbage trucks unload at the waste depot.
+  freight_hub: 24,
+  waste_depot: 16,
 };
 
 // ---------------------------------------------------------------------------

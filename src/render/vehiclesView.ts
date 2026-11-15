@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VEHICLE_DIMENSIONS, type Pose, type Vehicle, type VehicleModel } from '../sim/traffic/vehicle';
+import { TRUCK, VEHICLE_DIMENSIONS, type Pose, type Vehicle, type VehicleModel } from '../sim/traffic/vehicle';
 import { type VehicleModelGeometry, buildVehicleModel } from './vehicleModels';
 
 /** Road surface height (vehicles sit on the asphalt layer). */
@@ -9,7 +9,8 @@ const FLASH_RATE = 3;
 const INITIAL_CAPACITY = 64;
 
 /** What the view needs from a vehicle (road traffic or a bus moving in the depot yard). */
-export type RenderVehicle = Pick<Vehicle, 'model' | 'color' | 'pose' | 'prevPose' | 'sirens'>;
+export type RenderVehicle = Pick<Vehicle, 'model' | 'color' | 'pose' | 'prevPose' | 'sirens'> &
+  Partial<Pick<Vehicle, 'trailer' | 'prevTrailer'>>;
 
 const BEACON_ON = new THREE.Color(0x3d8bff);
 const BEACON_OFF = new THREE.Color(0x1a2a44);
@@ -48,7 +49,15 @@ export class VehiclesView {
     this.beacons = this.createBeacons(this.beaconCapacity);
   }
 
-  update(vehicles: readonly RenderVehicle[], alpha: number, time: number): void {
+  update(input: readonly RenderVehicle[], alpha: number, time: number): void {
+    // An articulated lorry is drawn as two instances: tractor and trailer.
+    const vehicles: RenderVehicle[] = [];
+    for (const v of input) {
+      vehicles.push(v);
+      if (v.trailer && v.prevTrailer) {
+        vehicles.push({ model: 'trailer', color: v.color, pose: v.trailer, prevPose: v.prevTrailer, sirens: false });
+      }
+    }
     const flash = Math.floor(time * FLASH_RATE * 2) % 2;
     const counts = new Map<VehicleModel, number>();
     for (const v of vehicles) counts.set(v.model, (counts.get(v.model) ?? 0) + 1);
@@ -100,7 +109,9 @@ export class VehiclesView {
       batch.paint.dispose();
       batch.fixed.dispose();
     }
-    const geometry = batch?.model ?? buildVehicleModel(model, VEHICLE_DIMENSIONS[model].length, VEHICLE_DIMENSIONS[model].width);
+    // The tractor of an articulated lorry is drawn on its own (the trailer is a separate model).
+    const length = model === 'truck' ? TRUCK.tractorLength : VEHICLE_DIMENSIONS[model].length;
+    const geometry = batch?.model ?? buildVehicleModel(model, length, VEHICLE_DIMENSIONS[model].width);
     batch = {
       model: geometry,
       paint: this.instanced(geometry.paint, capacity),
