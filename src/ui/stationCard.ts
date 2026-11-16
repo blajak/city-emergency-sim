@@ -4,6 +4,7 @@ import type { Simulation } from '../sim/Simulation';
 import type { Building } from '../sim/world/types';
 import { ICONS } from './icons';
 import { UNIT_STATUS } from './labels';
+import { placeCard } from './cardPlacement';
 
 const REFRESH_INTERVAL_MS = 250;
 const NOUN: Record<UnitType, string> = { fire: 'engine', police: 'patrol car' };
@@ -51,11 +52,7 @@ export class StationCard {
     this.el.hidden = false;
     this.render(true);
     // Keep the card inside the map area (left of the panel on desktop).
-    const margin = 12;
-    const maxX = window.innerWidth - this.el.offsetWidth - margin - (window.innerWidth > 760 ? 356 : 0);
-    const maxY = window.innerHeight - this.el.offsetHeight - margin;
-    this.el.style.left = `${Math.max(margin, Math.min(screen.x + 14, maxX))}px`;
-    this.el.style.top = `${Math.max(margin, Math.min(screen.y - 20, maxY))}px`;
+    placeCard(this.el, screen);
   }
 
   close(): void {

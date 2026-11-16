@@ -17,6 +17,8 @@ import { PowerCard } from './ui/powerCard';
 import { StationCard } from './ui/stationCard';
 import { Toast } from './ui/toast';
 import { INCIDENT_NAME, PRIORITY_LABEL } from './ui/labels';
+import { VehicleCard } from './ui/vehicleCard';
+import { type Subject, subjectAlive, subjectPosition } from './ui/vehicleInfo';
 
 const DEFAULT_SEED = 1337;
 
@@ -43,7 +45,13 @@ const railView = new RailView(city, sim.rail);
 const hud = requireElement('hud');
 const toast = new Toast(hud);
 const stationCard = new StationCard(hud, sim, (message, tone) => toast.show(message, tone));
-const busCard = new BusCard(hud, sim);
+/** Camera follows a subject until the card is closed or the user pans away. */
+function follow(subject: Subject | null, stopped: () => void): void {
+  if (!subject) return ctx.follow(null);
+  ctx.follow(() => (subjectAlive(sim, subject) ? subjectPosition(sim, subject) : null), stopped);
+}
+const busCard = new BusCard(hud, sim, (bus) => follow(bus && { kind: 'bus', bus }, () => busCard.followStopped()));
+const vehicleCard = new VehicleCard(hud, sim, { onFollow: (subject) => follow(subject, () => vehicleCard.followStopped()) });
 const powerCard = new PowerCard(hud, sim, (message, tone) => toast.show(message, tone));
 sim.dispatcher.onDiverted = (unit, from, to) => {
   const address = (buildingId: number) => formatAddress(city, city.buildings[buildingId]);
@@ -52,6 +60,7 @@ sim.dispatcher.onDiverted = (unit, from, to) => {
 const closeCards = () => {
   stationCard.close();
   busCard.close();
+  vehicleCard.close();
   powerCard.close();
 };
 const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera, sim, {
@@ -75,6 +84,10 @@ const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera,
   onStop: (stop, screen) => {
     closeCards();
     busCard.openStop(stop, screen);
+  },
+  onVehicle: (subject, screen) => {
+    closeCards();
+    vehicleCard.open(subject, screen);
   },
   onPowerPlant: (screen) => {
     closeCards();
@@ -133,6 +146,7 @@ function frame(dt: number): void {
   panel.render();
   stationCard.render();
   busCard.render();
+  vehicleCard.render();
   powerCard.render();
 }
 ctx.start(frame);

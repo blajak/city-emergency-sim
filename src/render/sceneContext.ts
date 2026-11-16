@@ -22,7 +22,16 @@ export interface SceneContext {
   setViewInsets(right: number, bottom: number): void;
   /** Night: dark sky, dim blue moonlight instead of the sun. */
   setNight(night: boolean): void;
+  /**
+   * Keeps the camera on a moving target (same zoom and angle; rotating still
+   * works). Returning null from `target`, panning (right drag, WASD / arrows)
+   * or `follow(null)` stops it; `onStop` is then called.
+   */
+  follow(target: (() => { x: number; z: number } | null) | null, onStop?: () => void): void;
 }
+
+/** How quickly the follow camera catches up with its target, 1/s. */
+const FOLLOW_RATE = 6;
 
 export function createSceneContext(container: HTMLElement, bounds: Bounds): SceneContext {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -102,6 +111,35 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
 
   const keyboardPan = createKeyboardPan(camera, controls, bounds);
 
+  // --- Follow camera ---------------------------------------------------------
+  let followTarget: (() => { x: number; z: number } | null) | null = null;
+  let onFollowStop: (() => void) | undefined;
+  const stopFollow = () => {
+    if (!followTarget) return;
+    followTarget = null;
+    controls.zoomToCursor = true;
+    const done = onFollowStop;
+    onFollowStop = undefined;
+    done?.();
+  };
+  // Panning takes the camera back (rotating with the left button and zooming don't).
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.button === 2) stopFollow();
+  });
+  keyboardPan.onPan(stopFollow);
+  const followStep = (dt: number) => {
+    if (!followTarget) return;
+    const p = followTarget();
+    if (!p) return stopFollow();
+    const k = Math.min(1, dt * FOLLOW_RATE);
+    const dx = (p.x - controls.target.x) * k;
+    const dz = (p.z - controls.target.z) * k;
+    controls.target.x += dx;
+    controls.target.z += dz;
+    camera.position.x += dx;
+    camera.position.z += dz;
+  };
+
   let insets = { right: 0, bottom: 0 };
   const onResize = () => {
     const w = container.clientWidth;
@@ -132,12 +170,21 @@ export function createSceneContext(container: HTMLElement, bounds: Bounds): Scen
       sun.color.setHex(night ? 0x9fb4ff : 0xfff3df);
       sun.intensity = night ? 0.35 : 2.6;
     },
+    follow(target, onStop) {
+      stopFollow();
+      if (!target) return;
+      followTarget = target;
+      onFollowStop = onStop;
+      // Zooming towards the cursor would move the target off the vehicle.
+      controls.zoomToCursor = false;
+    },
     start(onFrame) {
       const clock = new THREE.Clock();
       renderer.setAnimationLoop(() => {
         const dt = Math.min(clock.getDelta(), 0.1);
         keyboardPan.update(dt);
         onFrame?.(dt);
+        followStep(dt);
         controls.update();
         updateSun();
         renderer.render(scene, camera);
@@ -163,6 +210,7 @@ const PAN_KEYS: Record<string, [number, number]> = {
  */
 function createKeyboardPan(camera: THREE.PerspectiveCamera, controls: OrbitControls, bounds: Bounds) {
   const held = new Set<string>();
+  const panListeners: (() => void)[] = [];
   let fast = false;
   const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
   window.addEventListener('keydown', (e) => {
@@ -171,6 +219,7 @@ function createKeyboardPan(camera: THREE.PerspectiveCamera, controls: OrbitContr
     if (!(key in PAN_KEYS) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
     held.add(key);
     e.preventDefault();
+    for (const listener of panListeners) listener();
   });
   window.addEventListener('keyup', (e) => {
     fast = e.shiftKey;
@@ -182,6 +231,10 @@ function createKeyboardPan(camera: THREE.PerspectiveCamera, controls: OrbitContr
   const right = new THREE.Vector3();
   const move = new THREE.Vector3();
   return {
+    /** Called whenever a pan key goes down. */
+    onPan(listener: () => void): void {
+      panListeners.push(listener);
+    },
     update(dt: number): void {
       if (held.size === 0) return;
       let x = 0;

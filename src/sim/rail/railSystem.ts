@@ -1,4 +1,4 @@
-import { projectOnPolyline } from '../math/geometry';
+import { projectOnPolyline, samplePolyline } from '../math/geometry';
 import type { LaneGraph, SegmentId } from '../traffic/laneGraph';
 import type { Vehicle } from '../traffic/vehicle';
 import type { Track } from '../world/rail';
@@ -325,6 +325,35 @@ export class RailSystem {
     if (train.kind !== 'freight' || train.stops.length > 0) return;
     train.dir = train.dir === 1 ? -1 : 1;
     train.stops = [train.dir === 1 ? train.track.length - BUFFER_GAP : BUFFER_GAP];
+  }
+
+  /** Where the train stops next (station or freight terminal), or null when it is leaving the city. */
+  nextStopName(train: Train): string | null {
+    const next = train.stops[0];
+    return next === undefined ? null : this.placeName(train, next);
+  }
+
+  /** Centre of the train on the map (for the camera and picking). */
+  trainCentre(train: Train): { x: number; z: number } {
+    const centre = Math.min(train.track.length, Math.max(0, train.s - train.length / 2));
+    const p = samplePolyline(train.track.points, centre).point;
+    return { x: p.x, z: p.z };
+  }
+
+  /** Each car's body on the map (cars still in a tunnel are left out). */
+  carBodies(train: Train): { x: number; z: number; yaw: number; length: number }[] {
+    const bodies: { x: number; z: number; yaw: number; length: number }[] = [];
+    let cursor = train.s;
+    for (const car of train.cars) {
+      const front = cursor;
+      const rear = cursor - car.length;
+      cursor = rear - CAR_GAP;
+      if (front < 0.5 || rear > train.track.length - 0.5) continue;
+      const a = samplePolyline(train.track.points, Math.max(0, front)).point;
+      const b = samplePolyline(train.track.points, Math.max(0, rear)).point;
+      bodies.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: Math.atan2(a.x - b.x, a.z - b.z), length: car.length });
+    }
+    return bodies;
   }
 
   private placeName(train: Train, stopS: number): string {

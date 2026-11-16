@@ -28,7 +28,8 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   7a–7f (SPEC-v2.md, milestone 7). Done: **7a** incident priorities (+ diverting an
   en-route unit to a more urgent call), **7b** crossing-aware routing (train forecast in
   `RailSystem.closures`, `Router.findTimed`, responders re-plan around closing crossings).
-  Next: **7c** vehicle info card + follow camera, then 7d city pulse, 7e performance,
+  **7c** vehicle card (`ui/vehicleInfo.ts`, `ui/vehicleCard.ts`) + follow camera
+  (`SceneContext.follow`). Next: 7d city pulse, 7e performance (incl. hover picking),
   7f README / GIF (ffmpeg is installed via winget on the Windows PC).
 - User decisions so far (details in SPEC-v2.md): 3 bus lines, stops ~300 m, no
   passenger counts; buses leave/enter a depot yard; lorries only to bays ≥ 18 m (shops get

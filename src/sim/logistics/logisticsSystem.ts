@@ -37,6 +37,9 @@ export interface LogisticsVehicle {
   round: Building[];
   /** Garbage trucks: the building it is heading to or standing at. */
   bin: Building | null;
+  /** Garbage trucks: bins on this round, and how many are emptied. */
+  binsTotal: number;
+  binsDone: number;
 }
 
 const LOADING: Record<'truck' | 'van', [number, number]> = { truck: [25, 45], van: [10, 20] };
@@ -67,6 +70,8 @@ const LABEL: Record<LogisticsKind, string> = { truck: 'Truck', van: 'Van', garba
 
 export class LogisticsSystem {
   readonly fleet: LogisticsVehicle[] = [];
+  /** Running totals for the "city pulse" read-out. */
+  readonly stats = { deliveries: 0, binsEmptied: 0, garbageRounds: 0 };
   readonly targets: Record<LogisticsKind, number>;
   private readonly freightHub: Building | null;
   private readonly factories: Building[];
@@ -223,6 +228,8 @@ export class LogisticsSystem {
       until: 0,
       round: [],
       bin: null,
+      binsTotal: 0,
+      binsDone: 0,
     };
     this.fleet.push(item);
     return item;
@@ -244,13 +251,22 @@ export class LogisticsSystem {
     const length = item.vehicle.length;
     if (item.kind === 'garbage') {
       // Unloaded at the depot: the truck goes inside.
-      if (item.status === 'unloading') return this.remove(item);
+      if (item.status === 'unloading') {
+        this.stats.garbageRounds++;
+        return this.remove(item);
+      }
+      if (item.bin) {
+        // Done at this bin.
+        item.binsDone++;
+        this.stats.binsEmptied++;
+      }
       return this.nextBin(item);
     }
     if (item.status === 'loading' && item.customer) {
       if (this.send(item, this.bayPoint(item.customer, length))) item.status = 'delivering';
       else this.remove(item);
     } else if (item.status === 'unloading') {
+      this.stats.deliveries++;
       if (this.send(item, this.bayPoint(item.home, length))) item.status = 'returning';
       else this.remove(item);
     }
@@ -290,6 +306,7 @@ export class LogisticsSystem {
     if (!this.spotFree(at, length)) return false;
     const item = this.spawn('garbage', depot, at, true);
     item.round = this.planRound(depot);
+    item.binsTotal = item.round.length;
     item.status = 'collecting';
     item.until = this.time; // leaves at once
     return true;

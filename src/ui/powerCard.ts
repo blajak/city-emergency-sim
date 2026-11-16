@@ -1,16 +1,10 @@
 import type { Simulation } from '../sim/Simulation';
-import type { Crew, DistrictPower } from '../sim/power/powerSystem';
+import type { DistrictPower } from '../sim/power/powerSystem';
+import { CREW_STATUS } from './labels';
+import { placeCard } from './cardPlacement';
 
 const REFRESH_INTERVAL_MS = 250;
 
-const CREW_STATUS: Record<Crew['status'], string> = {
-  at_depot: 'At the depot',
-  leaving: 'Pulling out',
-  to_substation: 'Driving to substation',
-  repairing: 'Repairing',
-  returning: 'Returning',
-  entering: 'Parking',
-};
 
 const DISPATCH_ERRORS: Record<string, string> = {
   busy: 'All crews are busy.',
@@ -64,11 +58,7 @@ export class PowerCard {
   open(screen: { x: number; y: number }): void {
     this.el.hidden = false;
     this.render(true);
-    const margin = 12;
-    const maxX = window.innerWidth - this.el.offsetWidth - margin - (window.innerWidth > 760 ? 356 : 0);
-    const maxY = window.innerHeight - this.el.offsetHeight - margin;
-    this.el.style.left = `${Math.max(margin, Math.min(screen.x + 14, maxX))}px`;
-    this.el.style.top = `${Math.max(margin, Math.min(screen.y - 20, maxY))}px`;
+    placeCard(this.el, screen);
   }
 
   close(): void {

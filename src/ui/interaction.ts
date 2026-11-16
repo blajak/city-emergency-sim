@@ -5,8 +5,10 @@ import type { Bus } from '../sim/transit/busSystem';
 import type { Building, BusStop } from '../sim/world/types';
 import { BuildingHighlight, pickBuilding, rayBoxDistance } from '../render/picking';
 import { shelterPlacement } from '../render/transitView';
+import { vehicleBodies } from '../sim/traffic/vehicle';
+import { type Subject, subjectForVehicle } from './vehicleInfo';
 
-type TransitPick = { kind: 'bus'; bus: Bus } | { kind: 'stop'; stop: BusStop };
+type TransitPick = { kind: 'bus'; bus: Bus } | { kind: 'stop'; stop: BusStop } | { kind: 'subject'; subject: Subject };
 
 /** Pointer travel (px) above which a press counts as a camera drag, not a click. */
 const CLICK_TOLERANCE = 6;
@@ -31,6 +33,8 @@ export interface InteractionCallbacks {
   /** Click on a bus or a bus stop while no report tool is active. */
   onBus(bus: Bus, screen: { x: number; y: number }): void;
   onStop(stop: BusStop, screen: { x: number; y: number }): void;
+  /** Click on any other vehicle or a train while no report tool is active. */
+  onVehicle(subject: Subject, screen: { x: number; y: number }): void;
   /** Click on the power plant while no report tool is active. */
   onPowerPlant(screen: { x: number; y: number }): void;
   /** Click on anything else while no report tool is active. */
@@ -83,17 +87,38 @@ export class BuildingInteraction {
     return pickBuilding(this.aim(e), this.sim.city.buildings);
   }
 
-  /** Bus or bus stop under the cursor (they stand in front of buildings, so they win). */
+  /** Vehicle, train or bus stop under the cursor (they stand in front of buildings, so they win). */
   private pickTransit(e: PointerEvent): TransitPick | null {
     const ray = this.aim(e);
+    const { sim } = this;
     let best: TransitPick | null = null;
     let bestDistance = Infinity;
-    for (const bus of this.sim.buses.buses) {
-      const { pose, width, length } = bus.vehicle;
-      const d = rayBoxDistance(ray, pose.x, pose.z, pose.yaw, width / 2 + 0.3, length / 2 + 0.3, 3.4);
+    const consider = (d: number | null, pick: () => TransitPick) => {
       if (d !== null && d < bestDistance) {
         bestDistance = d;
-        best = { kind: 'bus', bus };
+        best = pick();
+      }
+    };
+    for (const vehicle of sim.traffic.vehicles) {
+      const height = vehicle.length > 7 ? 3.4 : 2;
+      for (const body of vehicleBodies(vehicle)) {
+        const d = rayBoxDistance(ray, body.pose.x, body.pose.z, body.pose.yaw, body.width / 2 + 0.3, body.length / 2 + 0.3, height);
+        consider(d, () => {
+          const subject = subjectForVehicle(sim, vehicle);
+          return subject.kind === 'bus' ? { kind: 'bus', bus: subject.bus } : { kind: 'subject', subject };
+        });
+      }
+    }
+    // Utility vans on the driveway, off the road network.
+    for (const crew of sim.power.crews) {
+      if (crew.vehicle || !crew.move) continue;
+      const d = rayBoxDistance(ray, crew.pose.x, crew.pose.z, crew.pose.yaw, 1.3, 3, 2.4);
+      consider(d, () => ({ kind: 'subject', subject: { kind: 'crew', crew } }));
+    }
+    for (const train of sim.rail.trains) {
+      for (const car of sim.rail.carBodies(train)) {
+        const d = rayBoxDistance(ray, car.x, car.z, car.yaw, 1.7, car.length / 2, 4.2);
+        consider(d, () => ({ kind: 'subject', subject: { kind: 'train', train } }));
       }
     }
     for (const box of this.stopBoxes) {
@@ -150,6 +175,7 @@ export class BuildingInteraction {
       const screen = { x: e.clientX, y: e.clientY };
       if (transit?.kind === 'bus') this.callbacks.onBus(transit.bus, screen);
       else if (transit?.kind === 'stop') this.callbacks.onStop(transit.stop, screen);
+      else if (transit?.kind === 'subject') this.callbacks.onVehicle(transit.subject, screen);
       else if (building?.kind === 'power_plant') this.callbacks.onPowerPlant(screen);
       else if (building && isStation(building)) this.callbacks.onStation(building, { x: e.clientX, y: e.clientY });
       else this.callbacks.onEmptyClick();

@@ -1,6 +1,7 @@
 import type { Simulation } from '../sim/Simulation';
 import type { Bus, BusStatus } from '../sim/transit/busSystem';
 import type { BusLine, BusStop } from '../sim/world/types';
+import { placeCard } from './cardPlacement';
 
 const REFRESH_INTERVAL_MS = 250;
 
@@ -18,20 +19,38 @@ type Target = { kind: 'bus'; bus: Bus } | { kind: 'stop'; stop: BusStop };
 export class BusCard {
   private readonly el: HTMLElement;
   private target: Target | null = null;
+  private following = false;
   private lastRender = 0;
 
   constructor(
     container: HTMLElement,
     private readonly sim: Simulation,
+    /** Start (bus) or stop (null) following a bus with the camera. */
+    private readonly onFollow: (bus: Bus | null) => void = () => {},
   ) {
     this.el = document.createElement('div');
     this.el.className = 'station-card bus-card';
     this.el.hidden = true;
     container.appendChild(this.el);
     this.el.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('[data-action="close"]')) this.close();
+      const button = (e.target as HTMLElement).closest('button');
+      if (button?.dataset.action === 'close') this.close();
+      if (button?.dataset.action === 'follow') this.setFollowing(!this.following);
     });
     window.addEventListener('keydown', (e) => e.key === 'Escape' && this.close());
+  }
+
+  /** The camera stopped following on its own (the user panned away). */
+  followStopped(): void {
+    this.following = false;
+    this.render(true);
+  }
+
+  private setFollowing(on: boolean): void {
+    if (on === this.following) return;
+    this.following = on;
+    this.onFollow(on && this.target?.kind === 'bus' ? this.target.bus : null);
+    this.render(true);
   }
 
   openBus(bus: Bus, screen: { x: number; y: number }): void {
@@ -43,19 +62,17 @@ export class BusCard {
   }
 
   close(): void {
+    this.setFollowing(false);
     this.el.hidden = true;
     this.target = null;
   }
 
   private open(target: Target, screen: { x: number; y: number }): void {
+    this.setFollowing(false);
     this.target = target;
     this.el.hidden = false;
     this.render(true);
-    const margin = 12;
-    const maxX = window.innerWidth - this.el.offsetWidth - margin - (window.innerWidth > 760 ? 356 : 0);
-    const maxY = window.innerHeight - this.el.offsetHeight - margin;
-    this.el.style.left = `${Math.max(margin, Math.min(screen.x + 14, maxX))}px`;
-    this.el.style.top = `${Math.max(margin, Math.min(screen.y - 20, maxY))}px`;
+    placeCard(this.el, screen);
   }
 
   render(force = false): void {
@@ -99,7 +116,10 @@ export class BusCard {
               .map((n) => `<li class="station-unit"><span>${escape(n.stop.name)}</span><span class="muted">${formatEta(n.eta)}</span></li>`)
               .join('')}</ul>`
           : ''
-      }`;
+      }
+      <button class="follow-button ${this.following ? 'active' : ''}" data-action="follow" aria-pressed="${this.following}">
+        ${this.following ? 'Following · Esc to stop' : 'Follow'}
+      </button>`;
   }
 
   private stopHtml(stop: BusStop): string {

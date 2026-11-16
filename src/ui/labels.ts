@@ -1,4 +1,5 @@
 import type { IncidentPriority, IncidentStatus, IncidentType, UnitStatus } from '../sim/dispatch/types';
+import type { CrewStatus } from '../sim/power/powerSystem';
 
 export interface StatusLabel {
   label: string;
@@ -24,6 +25,15 @@ export const UNIT_STATUS: Record<UnitStatus, StatusLabel> = {
 };
 
 export const INCIDENT_NAME: Record<IncidentType, string> = { fire: 'Fire', crime: 'Crime' };
+
+export const CREW_STATUS: Record<CrewStatus, string> = {
+  at_depot: 'At the depot',
+  leaving: 'Pulling out',
+  to_substation: 'Driving to substation',
+  repairing: 'Repairing',
+  returning: 'Returning',
+  entering: 'Parking',
+};
 
 /** Badge text for urgent calls (normal calls get none). */
 export const PRIORITY_LABEL: Record<IncidentPriority, string | null> = {
