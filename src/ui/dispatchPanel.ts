@@ -22,6 +22,7 @@ export class DispatchPanel {
   private readonly hintEl: HTMLElement;
   private readonly summaryEl: HTMLElement;
   private readonly powerEl: HTMLElement;
+  private readonly pulseEl: HTMLElement;
   private readonly nightButton: HTMLButtonElement;
   private tool: IncidentType | null = null;
   private night = false;
@@ -70,6 +71,10 @@ export class DispatchPanel {
         <h3>Power <span class="count">click the power plant</span></h3>
         <ul class="list" data-ref="power"></ul>
       </section>
+      <section class="panel-section">
+        <h3>City pulse</h3>
+        <dl class="pulse" data-ref="pulse"></dl>
+      </section>
     `;
     container.appendChild(this.root);
     const ref = (name: string) => this.root.querySelector<HTMLElement>(`[data-ref="${name}"]`)!;
@@ -79,6 +84,7 @@ export class DispatchPanel {
     this.hintEl = ref('hint');
     this.summaryEl = ref('summary');
     this.powerEl = ref('power');
+    this.pulseEl = ref('pulse');
     this.nightButton = this.root.querySelector<HTMLButtonElement>('[data-action="night"]')!;
 
     this.root.addEventListener('click', (e) => {
@@ -172,6 +178,27 @@ export class DispatchPanel {
       `<li class="empty">No incidents. Pick a tool above and click a building.</li>`;
     this.unitsEl.innerHTML = dispatcher.units.map((u) => this.unitItem(u)).join('');
     this.powerEl.innerHTML = this.powerItems();
+    this.pulseEl.innerHTML = this.pulseItems();
+  }
+
+  private pulseItems(): string {
+    const p = this.sim.pulse();
+    const tile = (label: string, value: string, note = '', alert = false) => `
+      <div class="pulse-tile ${alert ? 'is-alert' : ''}">
+        <dt>${label}</dt>
+        <dd><span class="tabular">${value}</span>${note ? `<small>${note}</small>` : ''}</dd>
+      </div>`;
+    const onTime = p.trainsOnTime === null ? '—' : `${Math.round(p.trainsOnTime * 100)}%`;
+    const arrivals = p.trainArrivals ? `${p.trainArrivals} arrivals` : '';
+    const response = p.averageResponse === null ? '—' : formatDuration(p.averageResponse);
+    return [
+      tile('Deliveries', String(p.deliveries)),
+      tile('Bins emptied', String(p.binsEmptied)),
+      tile('Trains on time', onTime, arrivals),
+      tile('Blackouts', String(p.blackouts), p.blackouts === 1 ? 'district' : p.blackouts > 1 ? 'districts' : '', p.blackouts > 0),
+      tile('Incidents resolved', String(p.incidentsResolved)),
+      tile('Avg response', response, p.averageResponse === null ? '' : 'call → on scene'),
+    ].join('');
   }
 
   private powerItems(): string {

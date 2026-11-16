@@ -17,6 +17,19 @@ const MAX_STEPS_PER_FRAME = 10;
 
 export type TimeScale = 0 | 1 | 2;
 
+export interface CityPulse {
+  deliveries: number;
+  binsEmptied: number;
+  trainArrivals: number;
+  /** Share of passenger train arrivals less than 30 s late, or null before the first one. */
+  trainsOnTime: number | null;
+  /** Districts without power right now. */
+  blackouts: number;
+  incidentsResolved: number;
+  /** Mean seconds from call to arrival on scene, or null before the first arrival. */
+  averageResponse: number | null;
+}
+
 export interface SimulationOptions {
   civilianCount?: number;
   fireUnits?: number;
@@ -59,6 +72,22 @@ export class Simulation {
     this.logistics = new LogisticsSystem(city, this.traffic, rng);
     this.power = new PowerSystem(city, this.traffic, this.signals, rng);
     this.traffic.spawnCivilians(options.civilianCount ?? 20);
+  }
+
+  /** "City pulse": running totals and the current state of the city's services. */
+  pulse(): CityPulse {
+    const resolved = this.dispatcher.incidents.filter((i) => i.status === 'resolved');
+    const reached = this.dispatcher.incidents.filter((i) => i.arrivedAt !== null);
+    const { arrivals, onTime } = this.rail.stats;
+    return {
+      deliveries: this.logistics.stats.deliveries,
+      binsEmptied: this.logistics.stats.binsEmptied,
+      trainArrivals: arrivals,
+      trainsOnTime: arrivals > 0 ? onTime / arrivals : null,
+      blackouts: this.power.districts.filter((d) => !d.on).length,
+      incidentsResolved: resolved.length,
+      averageResponse: reached.length > 0 ? reached.reduce((s, i) => s + i.arrivedAt! - i.reportedAt, 0) / reached.length : null,
+    };
   }
 
   reportIncident(type: IncidentType, buildingId: BuildingId): ReportResult {

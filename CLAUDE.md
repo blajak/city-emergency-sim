@@ -29,8 +29,10 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   en-route unit to a more urgent call), **7b** crossing-aware routing (train forecast in
   `RailSystem.closures`, `Router.findTimed`, responders re-plan around closing crossings).
   **7c** vehicle card (`ui/vehicleInfo.ts`, `ui/vehicleCard.ts`) + follow camera
-  (`SceneContext.follow`). Next: 7d city pulse, 7e performance (incl. hover picking),
-  7f README / GIF (ffmpeg is installed via winget on the Windows PC).
+  (`SceneContext.follow`). **7d** city pulse (`Simulation.pulse()`, passenger
+  timetable + punctuality in `RailSystem`, logistics totals; panel section).
+  Next: 7e performance (incl. hover picking), 7f README / GIF (ffmpeg is installed via
+  winget on the Windows PC).
 - User decisions so far (details in SPEC-v2.md): 3 bus lines, stops ~300 m, no
   passenger counts; buses leave/enter a depot yard; lorries only to bays ≥ 18 m (shops get
   vans); garbage trucks only in cities with a waste depot; no visible power lines; 1 utility

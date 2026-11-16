@@ -86,7 +86,12 @@ export interface Train {
   stops: number[];
   /** Station / terminal currently being served, for display. */
   stoppedAt: string | null;
+  /** Passenger trains: timetable arrival (sim time) at each stop still in `stops`. */
+  schedule: number[];
 }
+
+/** A train arriving less than this late counts as on time, s. */
+export const ON_TIME_TOLERANCE = 30;
 
 export type RailEvent = { kind: 'train_arrived'; train: Train; place: string };
 
@@ -117,7 +122,13 @@ interface TrainOutlook {
 export class RailSystem {
   readonly trains: Train[] = [];
   /** Running totals, e.g. for a "city pulse" read-out. */
-  readonly stats = { stationStops: 0, freightTrips: 0 };
+  readonly stats = {
+    stationStops: 0,
+    freightTrips: 0,
+    /** Passenger train arrivals at stations, and those less than ON_TIME_TOLERANCE late. */
+    arrivals: 0,
+    onTime: 0,
+  };
   readonly crossings: LevelCrossing[];
   private readonly laneCrossings: Map<SegmentId, LaneCrossing[]>;
   private readonly tracks: Track[];
@@ -238,6 +249,7 @@ export class RailSystem {
         dwell: 0,
         stops,
         stoppedAt: null,
+        schedule: this.timetable(stops, due),
       });
       this.nextDeparture.set(track.id, due + PASSENGER_INTERVAL);
     }
@@ -259,7 +271,28 @@ export class RailSystem {
       dwell: FREIGHT_DWELL / 2,
       stops: [track.length - BUFFER_GAP],
       stoppedAt: 'Freight Hub',
+      schedule: [],
     });
+  }
+
+  /**
+   * Timetable for a passenger train leaving the tunnel at `departure`: arrival at
+   * each stop with a clear line (station dwells included).
+   */
+  private timetable(stops: readonly number[], departure: number): number[] {
+    const perf = PERFORMANCE.passenger;
+    const times: number[] = [];
+    let t = departure;
+    let v = PASSENGER_ENTRY_SPEED;
+    let at = 0;
+    for (const stop of stops) {
+      t += legTime(stop - at, v, true, perf);
+      times.push(t);
+      t += STATION_DWELL;
+      v = 0;
+      at = stop;
+    }
+    return times;
   }
 
   private head(train: Train): number {
@@ -312,8 +345,16 @@ export class RailSystem {
       train.stops.shift();
       train.dwell = train.kind === 'freight' ? FREIGHT_DWELL : STATION_DWELL;
       train.stoppedAt = this.placeName(train, nextStop);
-      if (train.kind === 'passenger') this.stats.stationStops++;
-      else this.stats.freightTrips++;
+      if (train.kind === 'passenger') {
+        this.stats.stationStops++;
+        const planned = train.schedule.shift();
+        if (planned !== undefined) {
+          this.stats.arrivals++;
+          if (this.time - planned < ON_TIME_TOLERANCE) this.stats.onTime++;
+        }
+      } else {
+        this.stats.freightTrips++;
+      }
       this.events.push({ kind: 'train_arrived', train, place: train.stoppedAt });
     }
   }

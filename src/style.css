@@ -332,6 +332,42 @@ body {
   color: var(--chip-done-text);
 }
 
+.pulse {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.pulse-tile {
+  padding: 8px 10px;
+  background: rgba(30, 40, 50, 0.04);
+  border-radius: 8px;
+}
+
+.pulse-tile dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pulse-tile dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.pulse-tile small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.pulse-tile.is-alert dd {
+  color: var(--chip-active-text);
+}
+
 .priority {
   flex: none;
   align-self: center;
