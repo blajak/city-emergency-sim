@@ -205,7 +205,12 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    - **7d City pulse**: deliveries, bins emptied, trains on time (< 30 s late against the
      2½-min timetable), current blackouts, incidents resolved, average response time.
    - **7e Performance pass**: measure first (perf test, `?debug` at scale 10), fix only
-     what shows up.
+     what shows up. Measured (Windows PC, scale 10, ~450 vehicles): sim step median
+     0.78 ms, p99 1.3 ms (same as before milestone 7; the train forecast adds ~0.04 ms,
+     the crossing-aware unit choice ~2.5 ms once per call); per frame ~0.1 ms for views
+     and panel, ~0.4 ms render submit, hover picking 0.17 ms; 144 FPS (display cap) at
+     1920×1080, day and night, ~100 draw calls, ~0.7 M triangles. Nothing needed
+     fixing; hover picking stays a plain loop. Not measured: integrated graphics.
    - **7f Docs**: README, screenshots, GIF (ffmpeg), SPEC / CLAUDE.md.
    A second fire / police station for big cities is left for later.
 
