@@ -22,17 +22,23 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 ## Status
 
 - v1 (SPEC.md): all 7 milestones done.
-- v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–6 done
-  (performance foundation, city generator v2, railway, buses, logistics, power + night).
-- **In progress: milestone 7** integration & polish, planned with the user as steps
-  7a–7f (SPEC-v2.md, milestone 7). Done: **7a** incident priorities (+ diverting an
+- v2 "Living City" (**SPEC-v2.md** — read it first): all 7 milestones done
+  (performance foundation, city generator v2, railway, buses, logistics, power + night,
+  integration & polish). Nothing planned next yet: ask the user. Open ideas: a second
+  fire / police station for big cities; the lorry starvation case under "Known, open".
+- Milestone 7 (steps 7a–7f in SPEC-v2.md): **7a** incident priorities (+ diverting an
   en-route unit to a more urgent call), **7b** crossing-aware routing (train forecast in
   `RailSystem.closures`, `Router.findTimed`, responders re-plan around closing crossings).
   **7c** vehicle card (`ui/vehicleInfo.ts`, `ui/vehicleCard.ts`) + follow camera
   (`SceneContext.follow`). **7d** city pulse (`Simulation.pulse()`, passenger
   timetable + punctuality in `RailSystem`, logistics totals; panel section).
   **7e** performance measured, nothing to fix (numbers in SPEC-v2.md).
-  Next: 7f README / GIF (ffmpeg is installed via winget on the Windows PC).
+  **7f** README, `docs/` media (demo.gif, screenshot.jpg, night.jpg) and night beacon glow
+  (`VehiclesView`: halos as `THREE.Points`, road pools).
+- README media were captured with headless Chrome driven over the DevTools protocol from a
+  throwaway Node script (`window.__sim` in dev to step the sim and aim the camera,
+  `Page.captureScreenshot` per frame), then `ffmpeg` → GIF (576 px, 6 fps, 96 colours,
+  ~4 MB). ffmpeg is installed via winget on the Windows PC.
 - User decisions so far (details in SPEC-v2.md): 3 bus lines, stops ~300 m, no
   passenger counts; buses leave/enter a depot yard; lorries only to bays ≥ 18 m (shops get
   vans); garbage trucks only in cities with a waste depot; no visible power lines; 1 utility

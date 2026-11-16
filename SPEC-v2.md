@@ -187,7 +187,7 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    district), street lamps with pools of light, headlights. Safety work: barriers only
    come down on an empty crossing; delivery bays keep clear of the railway; kerb spots
    start 6 m into a lane; no turning into a lane past a moved-over responder.
-7. **Integration & polish**: incident priorities, crossing-aware routing, vehicle info
+7. ✅ **Integration & polish**: incident priorities, crossing-aware routing, vehicle info
    card + follow camera, city pulse, performance pass, README / GIF update.
    Plan agreed with the user (steps 7a–7f):
    - **7a Priorities**: critical (power plant) > high (hospital, school, mall) > normal.
@@ -211,7 +211,10 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
      and panel, ~0.4 ms render submit, hover picking 0.17 ms; 144 FPS (display cap) at
      1920×1080, day and night, ~100 draw calls, ~0.7 M triangles. Nothing needed
      fixing; hover picking stays a plain loop. Not measured: integrated graphics.
-   - **7f Docs**: README, screenshots, GIF (ffmpeg), SPEC / CLAUDE.md.
+   - **7f Docs**: README, screenshots, GIF (ffmpeg), SPEC / CLAUDE.md. Also added at the
+     user's request: at night, responders' beacons light up the street (halo around the lit
+     beacon, pulsing blue pool on the road) and a fixed-size halo, drawn over rooftops and
+     without fog, keeps them visible across the whole city.
    A second fire / police station for big cities is left for later.
 
 Each milestone keeps the existing collision / gridlock tests green and adds its own.

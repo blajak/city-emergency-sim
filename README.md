@@ -9,9 +9,9 @@ pass, and it works the scene before heading back.
 
 [![Test and deploy](https://github.com/blajak/city-emergency-sim/actions/workflows/deploy.yml/badge.svg)](https://github.com/blajak/city-emergency-sim/actions/workflows/deploy.yml)
 
-![Fire engine leaving the station and putting out a fire](docs/demo.gif)
+![Fire engine leaving the station, overtaking cars that pulled over and putting out a fire](docs/demo.gif)
 
-![Dispatcher panel next to a fire being extinguished](docs/screenshot.jpg)
+![Two fire engines on their way to a high-priority call, with the vehicle card open](docs/screenshot.jpg)
 
 ## Features
 
@@ -21,20 +21,25 @@ pass, and it works the scene before heading back.
   a stadium, a sports hall, a pool, factories, warehouses, a container terminal, a waste
   depot and a power plant. Parks, street lamps, trees, crosswalks, delivery lay-bys.
   Every seed gives the same city (`?seed=42` for a different one).
-- **Traffic.** ~20 cars on random routes with realistic car-following (Intelligent Driver
+- **Traffic.** ~200 cars on random routes with realistic car-following (Intelligent Driver
   Model): smooth acceleration, safe gaps, slowing down for turns.
 - **Traffic lights.** Phased signals at every intersection with green / yellow / all-red
   stages. Drivers stop for red, decide sensibly on yellow, and left turns yield to oncoming
   traffic.
 - **Dispatcher.** Fire and crime reports are processed after a short delay and assigned to the
-  available unit with the shortest *route* travel time. When every unit is busy, calls wait in
-  a FIFO queue.
+  available unit with the shortest *route* travel time. Calls have a priority: the power
+  plant is critical; the hospital, schools and the mall are high. When every unit is busy,
+  calls wait in a queue served by priority, and a more urgent call may take a unit that is
+  still on its way to a less urgent one (never one already working a scene).
 - **Fire brigade.** Engines leave the station, drive to the building, park at the curb, spray
   water until the fire is out, then return.
 - **Police.** One car is always on patrol. If the patrolling car is dispatched, a car waiting
   at the station takes over the patrol; otherwise the first car to finish an incident does.
 - **Emergency driving.** Responding units pre-empt intersections, cross red lights at low
-  speed, and overtake civilians who pull over to the right.
+  speed, and overtake civilians who pull over to the right. They know the train timetable:
+  routes avoid level crossings that will be closed when the unit gets there, and a unit
+  switches to a detour on the way when a crossing ahead starts closing. At night their
+  beacons light up the street and can be seen across the city.
 - **Railway.** Passenger trains run every 2½ minutes in each direction, coming out of a
   tunnel, stopping at West Station and Central Station and leaving through the tunnel on
   the other side. A freight train shuttles between the freight hub and the Dockside
@@ -53,8 +58,16 @@ pass, and it works the scene before heading back.
   a utility crew. A district without power loses its traffic lights (junctions run without
   signals) and, at night, its lit windows and street lamps. A fire at the plant cuts a
   random district until the crew repairs it. Press <kbd>N</kbd> for night.
+- **Vehicle cards and follow camera.** Click any vehicle or train to see who it is and where
+  it is going ("Truck 3 · Factory, 84 Cedar Ave → Warehouse, 84 Abbey St · furniture",
+  "Garbage truck 1 · Bin 3 of 8", "Train 2 · Next stop: West Station"). **Follow** keeps the
+  camera on it; panning or <kbd>Esc</kbd> lets go.
+- **City pulse.** Deliveries made, bins emptied, trains on time, blackouts, incidents resolved
+  and the average response time, live in the panel.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
+
+![Night with a blackout in Northfield; responding units' beacons light up the streets](docs/night.jpg)
 
 ![A fire engine overtaking a car that pulled over at a red light](docs/overtaking.jpg)
 
@@ -70,6 +83,8 @@ pass, and it works the scene before heading back.
 | Pause / resume | <kbd>Space</kbd> |
 | Speed 1× / 2× | <kbd>1</kbd> / <kbd>2</kbd> |
 | Add or remove units | Click a station |
+| Vehicle card / follow camera | Click a vehicle or train, then **Follow** (<kbd>Esc</kbd> to stop) |
+| Day / night | <kbd>N</kbd> |
 
 URL parameters: `?seed=<number>` picks the city, `?scale=<1–10>` sets the size (default 10; 1 is a small town), `?cars=<number>` sets the traffic volume and `?debug` shows FPS, simulation cost and draw calls.
 
@@ -85,11 +100,15 @@ src/
     world/             city generator: road graph, buildings, trees, lamps, addresses
     traffic/           lane graph, IDM car-following, intersections, emergency driving
     signals/           traffic light controllers and phases
-    routing/           fastest-route search over the lane graph
-    dispatch/          dispatcher, units, incidents, parking spots
+    routing/           fastest-route search over the lane graph (A*, also time-dependent)
+    dispatch/          dispatcher, units, incidents, priorities, parking spots
+    rail/              trains, level crossings and their closure forecast
+    transit/           buses, timetable, depot yard
+    logistics/         lorries, delivery vans, garbage trucks
+    power/             districts on/off, utility crews
     Simulation.ts      fixed-step loop tying it together
-  render/              Three.js views: city, vehicles, signals, fire/smoke/water, picking
-  ui/                  dispatcher panel, station card, building interaction, toasts
+  render/              Three.js views: city, vehicles and beacons, signals, trains, fire/smoke/water
+  ui/                  dispatcher panel, cards (station, bus, power plant, vehicle), picking, toasts
 ```
 
 Some of the more interesting parts:
@@ -110,6 +129,14 @@ Some of the more interesting parts:
   it is clear.
 - **Long vehicles.** A vehicle's body is placed between its front and rear bumper positions
   along the actual path, so the 8 m fire engine follows curves instead of sticking out.
+- **Train forecast.** For every level crossing the rail system predicts when it will be
+  closed over the next few minutes (trains on the line, station stops, the freight
+  shuttle's way back, the next departures from the tunnels). The barriers close on the same
+  forecast, so it is right to within a few seconds.
+- **Crossing-aware routing.** Responders route with an A* search whose cost includes the
+  expected wait at each crossing at the time they would reach it; the dispatcher uses the
+  same times to pick the fastest unit. Every second, a unit on its way checks whether a
+  crossing ahead is now expected to be closed and switches to a faster detour.
 
 ## Getting started
 
@@ -130,7 +157,12 @@ headless and check every vehicle pair for overlap at every step:
 - city generation (determinism, connectivity, no buildings on roads or overlapping),
 - traffic with 20–60 cars for 5 minutes: no collisions, no gridlock,
 - traffic lights: correct phases, no conflicting greens, no red-light running,
-- dispatching: full fire lifecycle, rejections, FIFO queue, nearest-unit selection,
+- dispatching: full fire lifecycle, rejections, queue order, nearest-unit selection,
+  priorities and diverting a unit to a more urgent call,
+- railway: crossings never let a train meet a car, and the closure forecast matches the
+  barriers; responders spend far less time at closed crossings than without it,
+- buses, lorries, garbage trucks and utility crews: collision-free, in and out of their yards,
+- vehicle cards and the city pulse numbers,
 - police: patrol hand-over rules, crimes, adding and removing units,
 - emergency driving: a stream of incidents with no collisions or stuck units; units cross
   red lights, civilians pull over, and response times stay low.
