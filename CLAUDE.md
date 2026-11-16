@@ -24,8 +24,14 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 - v1 (SPEC.md): all 7 milestones done.
 - v2 "Living City" (**SPEC-v2.md** — read it first): all 7 milestones done
   (performance foundation, city generator v2, railway, buses, logistics, power + night,
-  integration & polish). Nothing planned next yet: ask the user. Open ideas: a second
-  fire / police station for big cities; the lorry starvation case under "Known, open".
+  integration & polish).
+- **Next: v3 (SPEC-v3.md), Feature 1 "Long-distance freight and container cranes"** —
+  planned and agreed with the user (decisions in SPEC-v3.md), not started. Begin with F1;
+  first look at the hub layout and settle the two open questions there with the user.
+- Other ideas discussed with the user for v3 (not chosen yet): ambulances + hospital,
+  traffic accidents, a "city runs by itself" mode with random calls, a second fire /
+  police station for big cities, spreading fires, weather, gradual day/night,
+  pedestrians; and the lorry starvation case under "Known, open".
 - Milestone 7 (steps 7a–7f in SPEC-v2.md): **7a** incident priorities (+ diverting an
   en-route unit to a more urgent call), **7b** crossing-aware routing (train forecast in
   `RailSystem.closures`, `Router.findTimed`, responders re-plan around closing crossings).
