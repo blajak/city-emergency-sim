@@ -42,6 +42,12 @@ const ARRIVAL_TOLERANCE = 1.5;
 const YIELD_AHEAD = 60;
 /** How far right a yielding civilian moves from the lane centre, m. */
 const PULL_OVER_LATERAL = 1.4;
+/**
+ * Pulling over needs a free kerb beside the vehicle and this far ahead, m: one that
+ * pulls over and then stops behind a parked vehicle blocks the responder behind it
+ * (with a lorry's tail still in the junction, neither can move).
+ */
+const PULL_OVER_ROOM_AHEAD = 12;
 /** Units overtaking in opposite directions keep at least this far apart, m. */
 const ONCOMING_RANGE = 30;
 /** Last part of a lane where vehicles queue for the junction and are never passed. */
@@ -94,9 +100,26 @@ export type TrafficEvent =
 /** Level crossings on lanes, as the traffic sees them. */
 export interface CrossingLookup {
   crossingsOn(laneId: SegmentId): readonly LaneCrossing[];
+  /** Expected wait at the barrier when arriving `eta` seconds from now (forecast of train movements). */
+  expectedWait?(lc: LaneCrossing, eta: number): number;
 }
 
+// --- Crossing-aware routing of responding units --------------------------------
+/** Responding units check their route against the crossing forecast this often, steps. */
+const REPLAN_INTERVAL = 20;
+/** Only look for a detour when the route ahead is expected to wait at least this long, s. */
+const REPLAN_MIN_WAIT = 3;
+/** A detour must save at least this much time, s. */
+const REPLAN_MIN_GAIN = 3;
+
 export const NO_CROSSINGS: CrossingLookup = { crossingsOn: () => [] };
+
+/** A stretch of kerb used by a vehicle that is off the road network (e.g. turning onto a driveway). */
+export interface KerbUse {
+  segment: SegmentId;
+  from: number;
+  to: number;
+}
 
 export interface ParkedVehicleSpec {
   role: VehicleRole;
@@ -127,6 +150,8 @@ export class TrafficSystem {
   private tailsBySegment = new Map<SegmentId, Vehicle[]>();
   private byId = new Map<number, Vehicle>();
   private nextId = 0;
+  private stepCount = 0;
+  private kerbUsers: () => readonly KerbUse[] = () => [];
   readonly router: Router;
   private events: TrafficEvent[] = [];
 
@@ -214,7 +239,8 @@ export class TrafficSystem {
    * stop and park. Parked vehicles first wait for a gap and pull out.
    */
   sendTo(vehicle: Vehicle, destination: RoutePoint, sirens: boolean, inLane = false): boolean {
-    const route = this.routeFrom(vehicle, destination);
+    // Responders plan around level crossings that are expected to be closed.
+    const route = this.routeFrom(vehicle, destination, sirens);
     if (!route) return false;
     this.setRoute(vehicle, route.segments.slice(1), destination, inLane);
     vehicle.sirens = sirens;
@@ -268,13 +294,56 @@ export class TrafficSystem {
     if (vehicle.maneuver === 'parked' || vehicle.maneuver === 'arriving') vehicle.maneuver = 'waiting_to_merge';
   }
 
-  /** Travel time estimate from the vehicle's position, or Infinity when unreachable. */
-  travelTime(vehicle: Vehicle, destination: RoutePoint): number {
-    return this.routeFrom(vehicle, destination)?.time ?? Infinity;
+  /** Kerb space used off the network (driveway manoeuvres): vehicles don't pull over there. */
+  setKerbUsers(users: () => readonly KerbUse[]): void {
+    this.kerbUsers = users;
   }
 
-  private routeFrom(vehicle: Vehicle, destination: RoutePoint) {
-    return this.router.find({ segment: vehicle.segment, s: vehicle.s }, destination);
+  /**
+   * Travel time estimate from the vehicle's position, or Infinity when unreachable.
+   * With `crossingAware`, includes expected waits at level crossings (as responders route).
+   */
+  travelTime(vehicle: Vehicle, destination: RoutePoint, crossingAware = false): number {
+    return this.routeFrom(vehicle, destination, crossingAware)?.time ?? Infinity;
+  }
+
+  private routeFrom(vehicle: Vehicle, destination: RoutePoint, crossingAware = false) {
+    const from = { segment: vehicle.segment, s: vehicle.s };
+    if (crossingAware && this.crossings.expectedWait) return this.router.findTimed(from, destination, this.crossingDelay);
+    return this.router.find(from, destination);
+  }
+
+  /** Expected seconds waiting at level crossings while driving a lane from `fromS` to `toS`. */
+  private readonly crossingDelay = (segmentId: SegmentId, entryTime: number, fromS: number, toS: number): number => {
+    const forecast = this.crossings;
+    if (!forecast.expectedWait) return 0;
+    const seg = this.segment(segmentId);
+    let wait = 0;
+    for (const lc of forecast.crossingsOn(segmentId)) {
+      if (lc.stopS < fromS || lc.stopS >= toS) continue;
+      wait += forecast.expectedWait(lc, entryTime + (lc.stopS - fromS) / seg.speedLimit + wait);
+    }
+    return wait;
+  };
+
+  /**
+   * A responder whose route crosses the railway where a train is expected
+   * switches to a detour when that is clearly faster. The lane it is on and a
+   * junction it has already reserved are kept.
+   */
+  private replanAroundCrossings(vehicle: Vehicle): void {
+    const dest = vehicle.destination;
+    const lane = this.segment(vehicle.segment);
+    if (!dest || vehicle.wander || vehicle.maneuver !== 'driving' || lane.kind !== 'lane' || vehicle.plan.length === 0) return;
+    const anchored = vehicle.reservation !== null && vehicle.reservation === vehicle.plan[0];
+    const from: RoutePoint = anchored ? { segment: vehicle.plan[0], s: 0 } : { segment: vehicle.segment, s: vehicle.s };
+    const rest = anchored ? vehicle.plan.slice(1) : vehicle.plan;
+    const startTime = anchored ? Math.max(0, lane.length - vehicle.s) / lane.speedLimit : 0;
+    const current = this.router.timeAlong(from, rest, dest, this.crossingDelay, startTime);
+    if (current.wait < REPLAN_MIN_WAIT) return;
+    const detour = this.router.findTimed(from, dest, this.crossingDelay, startTime);
+    if (!detour || detour.time > current.time - REPLAN_MIN_GAIN) return;
+    this.setRoute(vehicle, anchored ? detour.segments : detour.segments.slice(1), dest, vehicle.stopInLane);
   }
 
   private createVehicle(role: VehicleRole, model: VehicleModel, color: number, segment: SegmentId, s: number): Vehicle {
@@ -325,6 +394,10 @@ export class TrafficSystem {
   /** Advances all vehicles; returns parking / departure events from this step. */
   step(dt: number): TrafficEvent[] {
     this.events = [];
+    this.stepCount++;
+    for (const v of this.vehicles) {
+      if (v.sirens && (this.stepCount + v.id) % REPLAN_INTERVAL === 0) this.replanAroundCrossings(v);
+    }
     this.indexBySegment();
     this.assignYielding();
     this.updateOvertaking();
@@ -719,11 +792,12 @@ export class TrafficSystem {
         }
         offset += seg.length;
       }
-      // Anyone right beside it keeps yielding too (e.g. e just entered a junction).
+      // Anyone right beside it keeps yielding too (e.g. e just entered a junction). With
+      // the kerb ahead blocked, only while e is really beside it: one that e is merely
+      // queued behind moves back out and drives on past the obstacle.
       for (const c of this.vehicles) {
-        if (this.canYield(c) && c.yieldingTo === null && this.alongside(e, c) && c.lateral > 0.5) {
-          c.yieldingTo = e.id;
-        }
+        if (!this.canYield(c) || c.yieldingTo !== null || c.lateral <= 0.5 || !this.alongside(e, c)) continue;
+        if (this.roomToPullOver(c) || this.alongside(e, c, -0.5)) c.yieldingTo = e.id;
       }
     }
     // Next to a service vehicle that has stopped to park, stay pulled over but drive on.
@@ -753,12 +827,17 @@ export class TrafficSystem {
     return PULL_OVER_LATERAL + Math.max(0, (v.width - MAX_CIVILIAN_WIDTH) / 2);
   }
 
-  private alongside(a: Vehicle, b: Vehicle): boolean {
-    if (!a.trailer && !b.trailer) return Math.hypot(a.pose.x - b.pose.x, a.pose.z - b.pose.z) < (a.length + b.length) / 2 + 3;
+  /**
+   * Bodies close together (centres within half their lengths plus `margin`). With
+   * a negative margin only vehicles really side by side count, not one queued
+   * right behind the other.
+   */
+  private alongside(a: Vehicle, b: Vehicle, margin = 3): boolean {
+    if (!a.trailer && !b.trailer) return Math.hypot(a.pose.x - b.pose.x, a.pose.z - b.pose.z) < (a.length + b.length) / 2 + margin;
     // Articulated lorries: beside the tractor or the trailer.
     for (const x of vehicleBodies(a)) {
       for (const y of vehicleBodies(b)) {
-        if (Math.hypot(x.pose.x - y.pose.x, x.pose.z - y.pose.z) < (x.length + y.length) / 2 + 3) return true;
+        if (Math.hypot(x.pose.x - y.pose.x, x.pose.z - y.pose.z) < (x.length + y.length) / 2 + margin) return true;
       }
     }
     return false;
@@ -826,7 +905,9 @@ export class TrafficSystem {
         o.segment === vehicle.segment &&
         o.maneuver !== 'driving' &&
         o.s > vehicle.s - vehicle.length - 2 &&
-        o.s - o.length < vehicle.s + 2,
+        o.s - o.length < vehicle.s + PULL_OVER_ROOM_AHEAD,
+    ) && !this.kerbUsers().some(
+      (k) => k.segment === vehicle.segment && k.to > vehicle.s - vehicle.length - 2 && k.from < vehicle.s + PULL_OVER_ROOM_AHEAD,
     );
   }
 

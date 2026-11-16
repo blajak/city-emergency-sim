@@ -16,6 +16,7 @@ import { BusCard } from './ui/busCard';
 import { PowerCard } from './ui/powerCard';
 import { StationCard } from './ui/stationCard';
 import { Toast } from './ui/toast';
+import { INCIDENT_NAME, PRIORITY_LABEL } from './ui/labels';
 
 const DEFAULT_SEED = 1337;
 
@@ -44,6 +45,10 @@ const toast = new Toast(hud);
 const stationCard = new StationCard(hud, sim, (message, tone) => toast.show(message, tone));
 const busCard = new BusCard(hud, sim);
 const powerCard = new PowerCard(hud, sim, (message, tone) => toast.show(message, tone));
+sim.dispatcher.onDiverted = (unit, from, to) => {
+  const address = (buildingId: number) => formatAddress(city, city.buildings[buildingId]);
+  toast.show(`${unit.name} diverted to ${address(to.buildingId)} (${PRIORITY_LABEL[to.priority]?.toLowerCase()} priority); ${address(from.buildingId)} queued`);
+};
 const closeCards = () => {
   stationCard.close();
   busCard.close();
@@ -53,7 +58,8 @@ const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera,
   onReport(type, building) {
     const result = sim.reportIncident(type, building.id);
     if (result.ok) {
-      toast.show(`${type === 'fire' ? 'Fire' : 'Crime'} reported at ${formatAddress(city, building)}`);
+      const priority = PRIORITY_LABEL[result.incident.priority];
+      toast.show(`${priority ? `${priority} priority: ` : ''}${INCIDENT_NAME[type]} reported at ${formatAddress(city, building)}`);
       panel.setTool(null);
     }
   },

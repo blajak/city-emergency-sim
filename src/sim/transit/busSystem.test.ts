@@ -43,7 +43,9 @@ describe('buses', () => {
     let overtakes = 0;
     let yardExits = 0;
     let yardEntries = 0;
-    for (let step = 0; step < 16 * 60 * 20; step++) {
+    // Long enough for the first buses to finish their shift (3 round trips) and go back
+    // to the yard, with some margin: that happens after ~13–17 minutes.
+    for (let step = 0; step < 19 * 60 * 20; step++) {
       if (step % 300 === 0) sim.reportIncident(rng.chance(0.5) ? 'fire' : 'crime', rng.pick(homes).id);
       const overtakingBefore = new Set(sim.traffic.vehicles.filter((v) => v.overtaking !== null).map((v) => v.id));
       const leavingBefore = sim.buses.yard.filter((y) => y.pullOut).length;

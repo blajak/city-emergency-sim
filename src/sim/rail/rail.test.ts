@@ -67,4 +67,43 @@ describe('railway', () => {
     const stuck = civilians.filter((v) => v.odometer < 100);
     expect(stuck.length).toBeLessThan(civilians.length * 0.05);
   });
+
+  it('forecasts when each crossing closes and opens again', () => {
+    const sim = new Simulation(city, { civilianCount: 100 });
+    const { rail } = sim;
+    const LEAD = 30;
+    // Snapshot of every crossing's forecast once a second (absolute times).
+    const snapshots: { from: number; until: number }[][][] = [];
+    const closures = new Map<number, { close: number; open: number }[]>();
+    const wasClosed = new Map<number, boolean>();
+    for (let i = 0; i < 20 * 600; i++) {
+      sim.step();
+      if (i % 20 === 19) {
+        snapshots.push(rail.crossings.map((c) => rail.closures(c).map((w) => ({ from: sim.time + w.from, until: sim.time + w.until }))));
+      }
+      for (const c of rail.crossings) {
+        const closed = c.state !== 'open';
+        if (closed && !wasClosed.get(c.id)) closures.set(c.id, [...(closures.get(c.id) ?? []), { close: sim.time, open: Infinity }]);
+        if (!closed && wasClosed.get(c.id)) closures.get(c.id)!.at(-1)!.open = sim.time;
+        wasClosed.set(c.id, closed);
+      }
+    }
+    const fromErrors: number[] = [];
+    const untilErrors: number[] = [];
+    for (const [id, list] of closures) {
+      for (const a of list) {
+        const snapshot = snapshots[Math.round(a.close - LEAD) - 1];
+        if (a.open === Infinity || !snapshot) continue;
+        const windows = snapshot[id];
+        const w = windows.find((x) => Math.abs(x.from - a.close) < 20);
+        expect(w, `closure of crossing ${id} at ${a.close.toFixed(0)} s not forecast ${LEAD} s ahead`).toBeDefined();
+        fromErrors.push(Math.abs(w!.from - a.close));
+        untilErrors.push(Math.abs(w!.until - a.open));
+      }
+    }
+    const p90 = (e: number[]) => [...e].sort((x, y) => x - y)[Math.floor(e.length * 0.9)];
+    expect(fromErrors.length).toBeGreaterThan(50);
+    expect(p90(fromErrors)).toBeLessThan(3);
+    expect(p90(untilErrors)).toBeLessThan(4);
+  });
 });

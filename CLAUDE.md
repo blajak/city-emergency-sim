@@ -24,12 +24,12 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 - v1 (SPEC.md): all 7 milestones done.
 - v2 "Living City" (**SPEC-v2.md** — read it first): milestones 1–6 done
   (performance foundation, city generator v2, railway, buses, logistics, power + night).
-- **Next: milestone 7** integration & polish (incident priorities,
-  crossing-aware routing for emergency units, vehicle info card + follow camera,
-  "city pulse" panel, performance pass, README/GIF update). Details in SPEC-v2.md
-  ("Emergency services", "UI", "Milestones"). Not planned with the user yet: start by
-  proposing a plan and asking about open choices (as for milestones 4–6). The user
-  asked to keep the vehicle info card for milestone 7.
+- **In progress: milestone 7** integration & polish, planned with the user as steps
+  7a–7f (SPEC-v2.md, milestone 7). Done: **7a** incident priorities (+ diverting an
+  en-route unit to a more urgent call), **7b** crossing-aware routing (train forecast in
+  `RailSystem.closures`, `Router.findTimed`, responders re-plan around closing crossings).
+  Next: **7c** vehicle info card + follow camera, then 7d city pulse, 7e performance,
+  7f README / GIF (ffmpeg is installed via winget on the Windows PC).
 - User decisions so far (details in SPEC-v2.md): 3 bus lines, stops ~300 m, no
   passenger counts; buses leave/enter a depot yard; lorries only to bays ≥ 18 m (shops get
   vans); garbage trucks only in cities with a waste depot; no visible power lines; 1 utility
@@ -91,9 +91,24 @@ Traffic safety took many iterations; stress tests found each of these:
 - Night/power rendering: buildings and lamps are merged per district (`setLighting(night,
   powered)` on the city view); `sim.power.version` changes on every power change.
 - Level crossings: barriers only come down once the crossing is empty (long lorries).
+- Crossings close when the forecast (`RailSystem.closures`, station stops included) says a
+  train is within CLOSE_ETA; barriers and responder routing use the same forecast, so keep
+  them one function. The freight shuttle starts at the hub with the terminal ahead and
+  only reverses after reaching an end (no stops left).
+- Pulling over needs a free kerb beside the vehicle and 12 m ahead (`PULL_OVER_ROOM_AHEAD`),
+  including kerb used by driveway manoeuvres (`TrafficSystem.setKerbUsers`): a vehicle that
+  pulls over and stops behind a parked one blocks the responder behind it (deadlock with a
+  lorry's tail in the junction). The "beside a responder keeps yielding" rule only holds
+  a vehicle with a blocked kerb ahead when the responder is really side by side.
+- Scene spots: the dispatcher searches the kerb metre by metre for a spot clear of other
+  scenes AND of vehicles standing there (a unit that just finished and waits to pull out).
 - Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
   or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
   line for ~20 m of room beyond the junction (they always get through).
+- Known, open (found in 7b, seed 7 scale 10 DARK=2): a lorry at the stop line can be
+  starved by a stream of lorries on a long-conflicting movement (each reserves from
+  further away), and a responder queued behind it waits too. Possible fix: give a vehicle
+  that has waited at the line long enough priority for `longConflicts`.
 
 ## How to verify changes
 

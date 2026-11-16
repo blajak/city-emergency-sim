@@ -1,6 +1,6 @@
 import type { RoutePoint } from '../routing/router';
 import type { Vehicle } from '../traffic/vehicle';
-import type { BuildingId } from '../world/types';
+import type { Building, BuildingId } from '../world/types';
 
 export type UnitType = 'fire' | 'police';
 export type UnitStatus = 'at_station' | 'patrolling' | 'en_route' | 'on_scene' | 'returning';
@@ -23,11 +23,24 @@ export interface Unit {
 
 export type IncidentType = 'fire' | 'crime';
 export type IncidentStatus = 'reported' | 'queued' | 'assigned' | 'en_route' | 'on_scene' | 'resolved';
+/** critical: power plant; high: hospital, school, mall; normal: everything else. */
+export type IncidentPriority = 'critical' | 'high' | 'normal';
+
+/** Lower rank = more urgent. */
+export const PRIORITY_RANK: Record<IncidentPriority, number> = { critical: 0, high: 1, normal: 2 };
+
+const HIGH_PRIORITY_KINDS: readonly Building['kind'][] = ['hospital', 'school', 'mall'];
+
+export function priorityFor(building: Building): IncidentPriority {
+  if (building.kind === 'power_plant') return 'critical';
+  return HIGH_PRIORITY_KINDS.includes(building.kind) ? 'high' : 'normal';
+}
 
 export interface Incident {
   id: IncidentId;
   type: IncidentType;
   buildingId: BuildingId;
+  priority: IncidentPriority;
   status: IncidentStatus;
   /** Sim time of the call. */
   reportedAt: number;
@@ -41,6 +54,8 @@ export interface Incident {
   duration: number;
   workDone: number;
   resolvedAt: number | null;
+  /** Times a more urgent call took this incident's unit away (it then queues first). */
+  diverted: number;
 }
 
 export type ReportResult =

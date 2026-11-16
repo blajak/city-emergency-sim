@@ -1,8 +1,8 @@
-import type { Incident, IncidentType, Unit } from '../sim/dispatch/types';
+import { type Incident, type IncidentType, PRIORITY_RANK, type Unit } from '../sim/dispatch/types';
 import type { Simulation, TimeScale } from '../sim/Simulation';
 import { formatAddress } from '../sim/world/address';
 import { ICONS } from './icons';
-import { INCIDENT_NAME, INCIDENT_STATUS, UNIT_STATUS } from './labels';
+import { INCIDENT_NAME, INCIDENT_STATUS, PRIORITY_LABEL, UNIT_STATUS } from './labels';
 
 /** How many resolved incidents stay visible in the list. */
 const RESOLVED_SHOWN = 4;
@@ -155,7 +155,10 @@ export class DispatchPanel {
 
     this.clock.textContent = formatDuration(this.sim.time);
 
-    const active = dispatcher.incidents.filter((i) => i.status !== 'resolved').sort((a, b) => b.reportedAt - a.reportedAt);
+    // Most urgent first, newest first within a priority.
+    const active = dispatcher.incidents
+      .filter((i) => i.status !== 'resolved')
+      .sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.reportedAt - a.reportedAt);
     const resolved = dispatcher.incidents
       .filter((i) => i.status === 'resolved')
       .sort((a, b) => b.resolvedAt! - a.resolvedAt!)
@@ -201,8 +204,10 @@ export class DispatchPanel {
     const status = INCIDENT_STATUS[incident.status];
     const unit = this.sim.dispatcher.unit(incident.unitId);
     const end = incident.resolvedAt ?? this.sim.time;
+    const priority = PRIORITY_LABEL[incident.priority];
+    const badge = priority ? `<span class="priority priority-${incident.priority}">${priority}</span>` : '';
     let detail: string;
-    if (incident.status === 'queued') detail = 'Waiting for a free unit';
+    if (incident.status === 'queued') detail = incident.diverted ? 'Unit diverted · waiting' : 'Waiting for a free unit';
     else if (incident.status === 'reported') detail = 'Dispatcher processing call';
     else detail = unit ? unit.name : '—';
     const progress =
@@ -215,6 +220,7 @@ export class DispatchPanel {
         <div class="item-body">
           <div class="item-row">
             <strong>${INCIDENT_NAME[incident.type]} · ${formatAddress(this.sim.city, building)}</strong>
+            ${badge}
           </div>
           <div class="item-row muted">
             <span>${detail}</span>

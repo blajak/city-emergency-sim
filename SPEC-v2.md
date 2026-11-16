@@ -189,6 +189,25 @@ Shops and supermarkets get a **delivery bay / driveway** so trucks unload off th
    start 6 m into a lane; no turning into a lane past a moved-over responder.
 7. **Integration & polish**: incident priorities, crossing-aware routing, vehicle info
    card + follow camera, city pulse, performance pass, README / GIF update.
+   Plan agreed with the user (steps 7a–7f):
+   - **7a Priorities**: critical (power plant) > high (hospital, school, mall) > normal.
+     The queue is served by priority, then age. A higher-priority call may take a unit
+     that is *en route* to a lower-priority one (never one on scene); the dropped call
+     goes back to the front of its priority in the queue. Priority shown in the panel.
+   - **7b Crossing-aware routing**: the rail system predicts when each crossing will be
+     closed; emergency units route with an uncached A* that adds the expected wait at
+     crossings (also used to pick the fastest unit) and re-plan to a detour when a
+     crossing ahead starts closing (only before entering that lane, only if faster).
+   - **7c Vehicle card + follow camera**: every road vehicle (civilians too) and trains
+     can be clicked; buses keep their card. "Follow" keeps zoom and angle and moves the
+     camera target with the vehicle; drag / WASD / Esc stop it. Building hover picking
+     uses the spatial grid.
+   - **7d City pulse**: deliveries, bins emptied, trains on time (< 30 s late against the
+     2½-min timetable), current blackouts, incidents resolved, average response time.
+   - **7e Performance pass**: measure first (perf test, `?debug` at scale 10), fix only
+     what shows up.
+   - **7f Docs**: README, screenshots, GIF (ffmpeg), SPEC / CLAUDE.md.
+   A second fire / police station for big cities is left for later.
 
 Each milestone keeps the existing collision / gridlock tests green and adds its own.
 

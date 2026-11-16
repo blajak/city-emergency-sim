@@ -6,7 +6,7 @@ import { type Vec2, add, dot, rightOf, scale } from '../math/vec2';
 import type { RoutePoint } from '../routing/router';
 import type { SignalSystem } from '../signals/signalSystem';
 import { type OffroadMove, offroadPose, startOffroad, stepOffroad } from '../traffic/offroad';
-import type { TrafficEvent, TrafficSystem } from '../traffic/trafficSystem';
+import type { KerbUse, TrafficEvent, TrafficSystem } from '../traffic/trafficSystem';
 import { type Pose, VEHICLE_DIMENSIONS, type Vehicle, parkingOffset } from '../traffic/vehicle';
 import { districtAt } from '../world/districts';
 import { UTILITY_GARAGE_DEPTH } from '../world/buildings';
@@ -71,6 +71,8 @@ export type DispatchResult = { ok: true; crew: Crew } | { ok: false; reason: 'po
 const VAN_COLOR = 0xf2b705;
 const REPAIR_TIME: [number, number] = [60, 90];
 const VAN = VEHICLE_DIMENSIONS.utility_van;
+/** A van turning between the kerb and the driveway is near the road for this much of its path, m. */
+const KERB_MANOEUVRE = 15;
 /** Driveway layout (plot frame, +z towards the street). */
 const TURN_RADIUS = 3.5;
 const SPOT_REAR = 1.5;
@@ -109,7 +111,29 @@ export class PowerSystem {
           vehicle: null, move: null, pose, prevPose: { ...pose }, until: 0,
         });
       }
+      this.traffic.setKerbUsers(() => this.kerbUse());
     }
+  }
+
+  /**
+   * Kerb strips a van uses while turning between the road and the driveway (it is
+   * off the road network then, so traffic would not see it): nobody pulls over there.
+   */
+  private kerbUse(): KerbUse[] {
+    const layout = this.layout;
+    const use: KerbUse[] = [];
+    if (!layout) return use;
+    for (const crew of this.crews) {
+      const move = crew.move;
+      if (!move) continue;
+      if (crew.status === 'entering' && move.s < KERB_MANOEUVRE) {
+        use.push({ segment: layout.entryKerb.segment, from: layout.entryKerb.s - VAN.length - 1, to: layout.entryKerb.s + KERB_MANOEUVRE });
+      }
+      if (crew.status === 'leaving' && move.pathLength - move.s < KERB_MANOEUVRE) {
+        use.push({ segment: layout.exitKerb.segment, from: layout.exitKerb.s - KERB_MANOEUVRE, to: layout.exitKerb.s + 1 });
+      }
+    }
+    return use;
   }
 
   get plantBuilding(): Building | null {

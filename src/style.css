@@ -332,6 +332,27 @@ body {
   color: var(--chip-done-text);
 }
 
+.priority {
+  flex: none;
+  align-self: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+
+.priority-high {
+  background: var(--chip-warn);
+  color: var(--chip-warn-text);
+}
+
+.priority-critical {
+  background: #c62f25;
+  color: #fff;
+}
+
 .progress {
   height: 4px;
   margin-top: 8px;

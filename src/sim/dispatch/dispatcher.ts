@@ -7,6 +7,8 @@ import { clampToLane, curbStop } from './curb';
 import {
   type Incident,
   type IncidentType,
+  PRIORITY_RANK,
+  priorityFor,
   type ReportResult,
   UNIT_TYPE_FOR,
   type Unit,
@@ -21,6 +23,8 @@ const ON_SCENE_DURATION: Record<IncidentType, [number, number]> = {
 };
 export const MAX_UNITS_PER_STATION = 3;
 export const MIN_UNITS_PER_STATION = 1;
+/** Free kerb between a unit at a scene and other vehicles standing there, m. */
+const SCENE_GAP = 1.5;
 /** Parking slot offsets in front of a station, in vehicle lengths. */
 const SLOT_ORDER = [0, 1, -1];
 
@@ -32,11 +36,14 @@ const UNIT_SPECS: Record<UnitType, { model: VehicleModel; color: number; label: 
 /**
  * Takes incident reports, picks the fastest available unit, tracks units
  * through en route → on scene → returning, and queues calls when every
- * unit is busy (FIFO per unit type).
+ * unit is busy. The queue is served by priority, then by age; when no unit
+ * is free, a call may take a unit that is still driving to a less urgent one.
  */
 export class Dispatcher {
   readonly units: Unit[] = [];
   readonly incidents: Incident[] = [];
+  /** Called when a more urgent call takes a unit away from the one it was driving to. */
+  onDiverted: ((unit: Unit, from: Incident, to: Incident) => void) | null = null;
   private nextUnitId = 1;
   private nextIncidentId = 1;
   private time = 0;
@@ -62,6 +69,7 @@ export class Dispatcher {
       id: this.nextIncidentId++,
       type,
       buildingId,
+      priority: priorityFor(building),
       status: 'reported',
       reportedAt: this.time,
       dispatchAt: this.time + this.rng.range(...CALL_PROCESSING),
@@ -71,6 +79,7 @@ export class Dispatcher {
       duration: this.rng.range(min, max),
       workDone: 0,
       resolvedAt: null,
+      diverted: 0,
     };
     this.incidents.push(incident);
     return { ok: true, incident };
@@ -193,22 +202,28 @@ export class Dispatcher {
   }
 
   private dispatch(incident: Incident): void {
-    const unit = this.bestUnitFor(incident);
-    if (!unit) {
-      incident.status = 'queued';
+    const free = this.fastestUnit(incident, (u) => this.isAvailable(u));
+    if (free) {
+      this.assign(free, incident);
       return;
     }
-    this.assign(unit, incident);
+    const busy = this.fastestUnit(incident, (u) => this.isDivertibleFor(u, incident));
+    if (busy) {
+      this.divert(busy, incident);
+      return;
+    }
+    incident.status = 'queued';
   }
 
-  /** The available unit of the right type with the shortest travel time. */
-  private bestUnitFor(incident: Incident): Unit | null {
+  /** The unit of the right type passing `eligible` with the shortest travel time. */
+  private fastestUnit(incident: Incident, eligible: (unit: Unit) => boolean): Unit | null {
     const type = UNIT_TYPE_FOR[incident.type];
     let best: Unit | null = null;
     let bestTime = Infinity;
     for (const unit of this.units) {
-      if (unit.type !== type || !this.isAvailable(unit)) continue;
-      const time = this.traffic.travelTime(unit.vehicle, this.sceneFor(incident, unit));
+      if (unit.type !== type || !eligible(unit)) continue;
+      // Includes expected waits at level crossings, as the unit would drive it.
+      const time = this.traffic.travelTime(unit.vehicle, this.sceneFor(incident, unit), true);
       if (time < bestTime) {
         bestTime = time;
         best = unit;
@@ -221,11 +236,40 @@ export class Dispatcher {
     return unit.status === 'at_station' || unit.status === 'returning' || unit.status === 'patrolling';
   }
 
-  private assign(unit: Unit, incident: Incident): void {
+  /** A unit still driving to a less urgent call (never one already on scene). */
+  private isDivertibleFor(unit: Unit, incident: Incident): boolean {
+    if (unit.status !== 'en_route') return false;
+    const current = this.incidents.find((i) => i.id === unit.incidentId);
+    return current !== undefined && PRIORITY_RANK[current.priority] > PRIORITY_RANK[incident.priority];
+  }
+
+  /**
+   * Takes `unit` off its current call and sends it to the more urgent `incident`.
+   * The dropped call queues first among calls of its priority, or in turn takes a
+   * unit from an even less urgent call.
+   */
+  private divert(unit: Unit, incident: Incident): void {
+    const dropped = this.incidents.find((i) => i.id === unit.incidentId)!;
+    dropped.status = 'queued';
+    dropped.unitId = null;
+    dropped.scene = null;
+    dropped.diverted++;
+    unit.incidentId = null;
+    if (this.assign(unit, incident)) {
+      this.onDiverted?.(unit, dropped, incident);
+    } else if (!this.serveQueue(unit)) {
+      unit.status = 'returning';
+      unit.vehicle.sirens = false;
+      this.traffic.sendTo(unit.vehicle, this.stationSlot(unit), false);
+    }
+    if (dropped.status === 'queued') this.dispatch(dropped);
+  }
+
+  private assign(unit: Unit, incident: Incident): boolean {
     const scene = this.sceneFor(incident, unit);
     if (!this.traffic.sendTo(unit.vehicle, scene, true)) {
       incident.status = 'queued';
-      return;
+      return false;
     }
     incident.scene = scene;
     incident.unitId = unit.id;
@@ -233,6 +277,7 @@ export class Dispatcher {
     unit.status = 'en_route';
     // A unit already on the road is en route at once; a parked one first has to pull out.
     incident.status = unit.vehicle.maneuver === 'driving' ? 'en_route' : 'assigned';
+    return true;
   }
 
   private resolve(incident: Incident): void {
@@ -246,14 +291,21 @@ export class Dispatcher {
     if (!this.serveQueue(unit)) this.traffic.sendTo(unit.vehicle, this.stationSlot(unit), false);
   }
 
-  /** Gives a free unit the oldest queued call of its type. */
+  /**
+   * Gives a free unit the most urgent queued call of its type: by priority, then
+   * calls that lost their unit to a more urgent one, then the oldest.
+   */
   private serveQueue(unit: Unit): boolean {
     const next = this.incidents
       .filter((i) => i.status === 'queued' && UNIT_TYPE_FOR[i.type] === unit.type)
-      .sort((a, b) => a.reportedAt - b.reportedAt)[0];
+      .sort(
+        (a, b) =>
+          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+          Number(b.diverted > 0) - Number(a.diverted > 0) ||
+          a.reportedAt - b.reportedAt,
+      )[0];
     if (!next) return false;
-    this.assign(unit, next);
-    return true;
+    return this.assign(unit, next);
   }
 
   // -------------------------------------------------------------------------
@@ -273,13 +325,23 @@ export class Dispatcher {
     const length = unit.vehicle.length;
     const base = curbStop(this.traffic.graph, this.city.roads, building, length);
     const lane = this.traffic.segment(base.segment);
-    const taken = this.incidents
-      .filter((i) => i !== incident && i.status !== 'resolved' && i.scene?.segment === base.segment)
-      .map((i) => i.scene!.s);
-    for (const k of [0, 1, -1, 2, -2, 3, -3]) {
-      const s = lane.kind === 'lane' ? clampToLane(lane, base.s + k * (length + 2), length) : base.s;
-      if (taken.every((t) => Math.abs(t - s) > length + 1.5) && !this.traffic.blocksCrossing(base.segment, s, length)) {
-        return { segment: base.segment, s };
+    // Kerb space in use: other calls' scenes, and anything standing at the kerb
+    // (e.g. a unit that has just finished here and is waiting to pull out).
+    const taken = [
+      ...this.incidents
+        .filter((i) => i !== incident && i.status !== 'resolved' && i.scene?.segment === base.segment)
+        .map((i) => ({ s: i.scene!.s, length: this.unit(i.unitId)?.vehicle.length ?? length })),
+      ...this.traffic.vehicles
+        .filter((v) => v !== unit.vehicle && v.segment === base.segment && v.maneuver !== 'driving')
+        .map((v) => ({ s: v.s, length: v.length })),
+    ];
+    // Vehicles occupy [s - length, s] along the lane.
+    const free = (s: number) => taken.every((t) => s - length > t.s + SCENE_GAP || t.s - t.length > s + SCENE_GAP);
+    if (lane.kind !== 'lane') return base;
+    // Nearest free spot to the building, metre by metre in both directions.
+    for (let d = 0; d <= lane.length; d++) {
+      for (const s of [clampToLane(lane, base.s + d, length), clampToLane(lane, base.s - d, length)]) {
+        if (free(s) && !this.traffic.blocksCrossing(base.segment, s, length)) return { segment: base.segment, s };
       }
     }
     return base;

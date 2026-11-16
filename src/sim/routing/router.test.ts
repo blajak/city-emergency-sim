@@ -55,4 +55,39 @@ describe('Router', () => {
       }
     });
   }
+
+  it('timed search matches the plain one without delays and routes around a delayed lane', () => {
+    const graph = buildLaneGraph(generateCity(1337, { scale: 5 }).roads);
+    const router = new Router(graph);
+    const rng = createRng(5);
+    let detours = 0;
+    for (let i = 0; i < 40; i++) {
+      const a = rng.pick(graph.lanes);
+      const b = rng.pick(graph.lanes);
+      const from = { segment: a.id, s: rng.range(0, a.length) };
+      const to = { segment: b.id, s: rng.range(0, b.length) };
+      const plain = router.find(from, to)!;
+      const timed = router.findTimed(from, to, () => 0)!;
+      expect(timed.time).toBeCloseTo(plain.time, 6);
+      expect(timed.wait).toBe(0);
+      expect(router.timeAlong(from, plain.segments.slice(1), to, () => 0).time).toBeCloseTo(plain.time, 6);
+
+      // Block a lane in the middle of the plain route for 10 minutes.
+      const middle = plain.segments.slice(1, -1).filter((id) => graph.segments[id].kind === 'lane');
+      if (middle.length === 0) continue;
+      const blocked = middle[Math.floor(middle.length / 2)];
+      const delay = (id: number, entry: number) => (id === blocked ? Math.max(0, 600 - entry) : 0);
+      const around = router.findTimed(from, to, delay)!;
+      const along = router.timeAlong(from, plain.segments.slice(1), to, delay);
+      expect(along.wait).toBeGreaterThan(500);
+      // Never worse than waiting on the old route; a detour when one exists.
+      expect(around.time).toBeLessThanOrEqual(along.time + 1e-6);
+      if (!around.segments.includes(blocked)) {
+        detours++;
+        expect(around.wait).toBe(0);
+        expect(around.time).toBeGreaterThanOrEqual(plain.time - 1e-6);
+      }
+    }
+    expect(detours).toBeGreaterThan(10);
+  });
 });

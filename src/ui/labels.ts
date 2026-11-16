@@ -1,4 +1,4 @@
-import type { IncidentStatus, IncidentType, UnitStatus } from '../sim/dispatch/types';
+import type { IncidentPriority, IncidentStatus, IncidentType, UnitStatus } from '../sim/dispatch/types';
 
 export interface StatusLabel {
   label: string;
@@ -24,3 +24,10 @@ export const UNIT_STATUS: Record<UnitStatus, StatusLabel> = {
 };
 
 export const INCIDENT_NAME: Record<IncidentType, string> = { fire: 'Fire', crime: 'Crime' };
+
+/** Badge text for urgent calls (normal calls get none). */
+export const PRIORITY_LABEL: Record<IncidentPriority, string | null> = {
+  critical: 'Critical',
+  high: 'High',
+  normal: null,
+};
