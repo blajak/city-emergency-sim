@@ -46,7 +46,7 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   both ends, like the shuttle). It must not conflict with the shuttle or the passenger
   tracks. The crossing forecast (`RailSystem.closures`), punctuality (city pulse) and the
   vehicle card must cover it.
-  **Status: built (2026-11-17), not committed at the time of writing.** Siding `longhaul`
+  **Status: done (2026-11-17), commit e1fdb4d, CI green.** Siding `longhaul`
   (track id 3, `LONGHAUL_OFFSET` 11.25) from the east edge into the hub with its own tunnel
   mouth; train kind `longhaul` every 480 s (first at 60 s), dwell 120 s (placeholder for the
   crane), backs out and disappears in the tunnel; forecast, card and stats cover it. New
@@ -105,6 +105,13 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   buffer stack when the shuttle is away) and 2 back. Dockside: 2 off the shuttle onto the
   stacks and 2 others on. Trains leave only when their swap is done. Render: low-poly
   gantry (legs on rails, beam, trolley, spreader on cables) and instanced containers.
+  Replaces the static decorative gantries and random stacks of the hub and the Dockside
+  terminal (`render/buildingKinds.ts`). The long-distance train's fixed 120 s dwell
+  (`LONGHAUL_DWELL`) becomes "until the crane is done".
+  **Ask the user at the start of F2:** (1) one hub crane spanning both freight tracks
+  (siding + shuttle) and the stack row — proposed, simplest; (2) should containers show
+  where they come from (e.g. distinct colours for containers arriving from outside) so
+  their way to Dockside can be followed?
 - **F3 Polish.** Click a crane for a card ("Moving container 2 of 4 · next train in 3 min");
   container counts in the city pulse if useful; tests (crane sequence finishes before
   departure, trains never meet on a track or a closed/occupied crossing, containers are
