@@ -2,7 +2,7 @@ import { polylineLength } from '../math/geometry';
 import { type Vec2, add, lerp, normalize, rightOf, scale, sub, vec2 } from '../math/vec2';
 import { STREET_CLEARANCE } from './constants';
 import type { Block, CityLayout } from './roadNetwork';
-import { railRow } from './roadNetwork';
+import { FREIGHT_MIN_COLS, railRow } from './roadNetwork';
 import type { Bounds } from './types';
 
 /**
@@ -11,11 +11,18 @@ import type { Bounds } from './types';
  *   ending in tunnels at both map edges, with two stations;
  * - in bigger cities, a separate freight track from a freight hub at the east
  *   end of the line, along the corridor and then south on a branch to a
- *   freight terminal in the industrial south-east. Freight trains shuttle on it.
+ *   freight terminal in the industrial south-east. Freight trains shuttle on it;
+ * - with the freight line, a long-distance freight siding from the east tunnel
+ *   into the hub, beside the shuttle's track (long-distance trains come and go
+ *   through the tunnel).
  * The tracks never cross each other, only streets (at level crossings).
  */
 
-export type TrackKind = 'eastbound' | 'westbound' | 'freight';
+export type TrackKind = 'eastbound' | 'westbound' | 'freight' | 'longhaul';
+
+export function isPassengerTrack(kind: TrackKind): boolean {
+  return kind === 'eastbound' || kind === 'westbound';
+}
 
 export interface Track {
   id: number;
@@ -46,6 +53,8 @@ export interface RailPlan {
 export const TRACK_OFFSET = 2.25;
 /** Distance of the freight track from the corridor centre line (south side). */
 export const FREIGHT_OFFSET = 6.75;
+/** Distance of the long-distance freight siding from the corridor centre line (south of the shuttle's). */
+export const LONGHAUL_OFFSET = 11.25;
 const FREIGHT_CURVE_RADIUS = 14;
 /** Keeps buffers and parked trains away from streets at the ends of the freight line. */
 const BUFFER_SETBACK = STREET_CLEARANCE + 4;
@@ -84,10 +93,16 @@ export function planRail(layout: CityLayout, bounds: Bounds): RailPlan {
   const terminalRow = rows - 2;
   const hubBlock = blockAt(rr, cols - 2);
   const terminalBlock = blockAt(terminalRow, branchColumn);
-  if (cols >= 9 && terminalRow - rr >= 2 && hubBlock && terminalBlock && !stationColumns.includes(cols - 2)) {
+  if (cols >= FREIGHT_MIN_COLS && terminalRow - rr >= 2 && hubBlock && terminalBlock && !stationColumns.includes(cols - 2)) {
     const freight = freightLine(layout, centre, rr, branchColumn, terminalRow, hubBlock);
     tracks.push({ id: 2, kind: 'freight', points: freight, length: polylineLength(freight) });
     corridors.push({ points: freight, halfWidth: 4.5 });
+    // Long-distance siding: from the east tunnel mouth westwards into the hub, ending at a
+    // buffer near the hub's west end (direction of travel: tunnel → buffer).
+    const hubWestX = Math.max(hubBlock.corners[0].x, hubBlock.corners[3].x) + BUFFER_SETBACK;
+    const longhaul = clipX(offsetPolyline(centre, LONGHAUL_OFFSET), hubWestX, bounds.maxX).reverse();
+    tracks.push({ id: 3, kind: 'longhaul', points: longhaul, length: polylineLength(longhaul) });
+    corridors.push({ points: longhaul, halfWidth: 4 });
     sites.push({ kind: 'freight_hub', name: 'Freight Hub', block: hubBlock, front: 'north' });
     sites.push({ kind: 'freight_terminal', name: 'Dockside Freight Terminal', block: terminalBlock, front: 'east' });
   }

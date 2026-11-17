@@ -299,6 +299,11 @@ export class TrafficSystem {
     this.kerbUsers = users;
   }
 
+  /** A driveway manoeuvre uses the kerb of `segment` somewhere between `from` and `to`. */
+  kerbInUse(segment: SegmentId, from: number, to: number): boolean {
+    return this.kerbUsers().some((k) => k.segment === segment && k.to > from && k.from < to);
+  }
+
   /**
    * Travel time estimate from the vehicle's position, or Infinity when unreachable.
    * With `crossingAware`, includes expected waits at level crossings (as responders route).
@@ -704,6 +709,7 @@ export class TrafficSystem {
     if (connector.turn === 'left' && this.oncomingHasPriority(connector)) return false;
     if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
+    if (this.crossingStopsInJunction(vehicle, connector)) return false;
     // Do not block the junction if the exit lane is backed up.
     const tail = this.lastInLine(connector.toLane);
     if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
@@ -713,6 +719,30 @@ export class TrafficSystem {
     holders.add(vehicle);
     vehicle.reservation = connector.id;
     return true;
+  }
+
+  /**
+   * A level crossing just past the junction is closed, or will be by the time the
+   * vehicle gets there, and the barrier is too close for the whole vehicle to wait
+   * clear of the junction: entering would leave its tail across other movements.
+   */
+  private crossingStopsInJunction(vehicle: Vehicle, connector: Connector): boolean {
+    const current = this.segment(vehicle.segment);
+    const toLine = current.kind === 'lane' ? Math.max(0, current.length - vehicle.s) : 0;
+    const { maxAccel } = vehicle.driver;
+    const vmax = Math.max(vehicle.v, connector.speedLimit);
+    for (const lc of this.crossings.crossingsOn(connector.toLane)) {
+      if (lc.stopS > vehicle.length + vehicle.driver.minGap + 2) continue; // room to wait off the junction
+      if (lc.crossing.state !== 'open') return true;
+      // Time to reach the barrier, accelerating from the current speed (not a crawl estimate:
+      // with trains every minute or so, a pessimistic guess would never find a gap).
+      const d = toLine + connector.length + lc.stopS;
+      const tAccel = (vmax - vehicle.v) / maxAccel;
+      const dAccel = vehicle.v * tAccel + 0.5 * maxAccel * tAccel * tAccel;
+      const eta = d <= dAccel ? (-vehicle.v + Math.sqrt(vehicle.v * vehicle.v + 2 * maxAccel * d)) / maxAccel : tAccel + (d - dAccel) / vmax;
+      if ((this.crossings.expectedWait?.(lc, eta + 2) ?? 0) > 0) return true;
+    }
+    return false;
   }
 
   /**
@@ -734,6 +764,7 @@ export class TrafficSystem {
     if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
     if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
+    if (this.crossingStopsInJunction(vehicle, connector)) return false;
 
     for (const holder of revoke) this.cancelReservation(holder);
     let holders = this.reservations.get(connector.id);
@@ -785,6 +816,7 @@ export class TrafficSystem {
             // No room at the curb (parked vehicle beside it): just keep driving.
             if (!this.roomToPullOver(c)) continue;
             if (turnsRightHere && seg.length - c.s < STOP_LINE_PULL_OVER_LIMIT) continue;
+            if (this.queuedAtLineAhead(e, c)) continue;
             const ahead = offset + c.s; // > 0: c's front is ahead of e's front
             // Keep yielding until e's tail is clear of c's front.
             if (ahead > -(e.length + 3) && ahead < YIELD_AHEAD) c.yieldingTo = e.id;
@@ -810,6 +842,17 @@ export class TrafficSystem {
         }
       }
     }
+  }
+
+  /**
+   * `c` is ahead of responder `e` in the same lane, in the last metres before the stop
+   * line, where nobody passes side by side: pulled over there it would wait for `e` while
+   * `e` waits behind it. It drives on through the junction instead.
+   */
+  private queuedAtLineAhead(e: Vehicle, c: Vehicle): boolean {
+    if (c.segment !== e.segment || c.s <= e.s) return false;
+    const seg = this.segment(c.segment);
+    return seg.kind === 'lane' && seg.length - c.s < STOP_ZONE;
   }
 
   /**
@@ -922,12 +965,42 @@ export class TrafficSystem {
       if (this.signals.lightFor(other.fromLane) !== 'green') continue;
       const lane = this.segment(other.fromLane);
       const head = this.firstInLine(lane.id);
+      if (!head || head.plan[0] !== other.id || lane.length - head.s >= YIELD_DISTANCE) continue;
       // A head that is stopped without permission to go (e.g. its exit is blocked)
-      // is not about to take the movement; don't wait for it forever.
-      const coming = head !== null && (head.v > 0.5 || head.reservation === other.id);
-      if (head && coming && head.plan[0] === other.id && lane.length - head.s < YIELD_DISTANCE) return true;
+      // is not about to take the movement; don't wait for it forever. One held only by
+      // left turns into the same exit is: otherwise a stream of left turns, each
+      // reserving before the last has cleared, starves it (a lorry turning right).
+      if (head.v > 0.5 || head.reservation === other.id || this.heldByLeftTurns(head, other)) return true;
     }
     return false;
+  }
+
+  /**
+   * Stopped at its stop line, and nothing but reservations of left turns (which should
+   * have yielded to it) keeps it from entering.
+   */
+  private heldByLeftTurns(vehicle: Vehicle, connector: Connector): boolean {
+    const lane = this.segment(vehicle.segment);
+    if (lane.kind !== 'lane' || lane.length - vehicle.s > STOP_LINE_MARGIN + vehicle.driver.minGap + 1) return false;
+    if (vehicle.reservation !== null || vehicle.yieldingTo !== null) return false;
+    let held = false;
+    for (const id of connector.conflicts) {
+      const other = this.segment(id) as Connector;
+      // Only holders that can take the movement now count: one queued behind another
+      // vehicle (a unit stuck behind the very left turn that is yielding) never clears.
+      const holders = [...(this.reservations.get(id) ?? [])].filter(
+        (h) => h.segment !== other.fromLane || this.firstInLine(other.fromLane) === h,
+      );
+      if (holders.length === 0) continue;
+      if (other.turn !== 'left') return false;
+      held = true;
+    }
+    if (!held || this.longConflict(vehicle, connector)) return false;
+    if (this.overtakerNearStart(connector, vehicle)) return false;
+    if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
+    if (this.crossingStopsInJunction(vehicle, connector)) return false;
+    const tail = this.lastInLine(connector.toLane);
+    return !tail || tail.s - tail.length >= vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN;
   }
 
   private cancelReservation(vehicle: Vehicle): void {

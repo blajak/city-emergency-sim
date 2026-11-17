@@ -118,11 +118,15 @@ export class PowerSystem {
   /**
    * Kerb strips a van uses while turning between the road and the driveway (it is
    * off the road network then, so traffic would not see it): nobody pulls over there.
+   * The driveway gate itself (between the vans' entry and exit kerb spots) is always
+   * kept clear: a unit parked there for a call blocked a van coming out.
    */
   private kerbUse(): KerbUse[] {
     const layout = this.layout;
     const use: KerbUse[] = [];
     if (!layout) return use;
+    const [a, b] = [layout.entryKerb.s, layout.exitKerb.s - VAN.length].sort((x, y) => x - y);
+    use.push({ segment: layout.exitKerb.segment, from: a, to: b });
     for (const crew of this.crews) {
       const move = crew.move;
       if (!move) continue;

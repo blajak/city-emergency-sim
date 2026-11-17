@@ -186,17 +186,19 @@ function describeTrain(sim: Simulation, train: Train): SubjectInfo {
   const next = sim.rail.nextStopName(train);
   const rows: [string, string][] = [];
   let status: string;
-  if (train.stoppedAt) status = train.kind === 'freight' ? `Loading at ${train.stoppedAt}` : `At ${train.stoppedAt}`;
+  if (train.stoppedAt) status = train.kind === 'passenger' ? `At ${train.stoppedAt}` : `Loading at ${train.stoppedAt}`;
   else if (next) status = `Next stop: ${next}`;
   else status = 'Leaving the city';
   if (train.stoppedAt && next) rows.push(['Next stop', next]);
   if (train.kind === 'passenger') rows.push(['Direction', train.track.kind === 'eastbound' ? 'Eastbound' : 'Westbound']);
+  if (train.kind === 'longhaul') rows.push(['Route', 'East tunnel ⇄ Freight Hub']);
   rows.push(['Speed', `${Math.round(train.v * 3.6)} km/h`]);
-  return {
-    title: train.kind === 'freight' ? `Freight train ${train.id}` : `Train ${train.id}`,
-    kind: train.kind === 'freight' ? 'Freight train' : 'Passenger train',
-    status,
-    rows,
-    color: train.kind === 'freight' ? 0x2e7d5b : 0xc8102e,
-  };
+  const look = TRAIN_LOOK[train.kind];
+  return { ...look, title: train.kind === 'passenger' ? `Train ${train.id}` : `${look.kind} ${train.id}`, status, rows };
 }
+
+const TRAIN_LOOK: Record<Train['kind'], { kind: string; color: number }> = {
+  passenger: { kind: 'Passenger train', color: 0xc8102e },
+  freight: { kind: 'Freight shuttle', color: 0x2e7d5b },
+  longhaul: { kind: 'Long-distance freight', color: 0x37474f },
+};

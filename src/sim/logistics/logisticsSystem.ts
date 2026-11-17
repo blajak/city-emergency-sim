@@ -151,6 +151,7 @@ export class LogisticsSystem {
 
   /** Nobody standing or driving at the kerb spot. */
   private spotFree(at: RoutePoint, length: number): boolean {
+    if (this.traffic.kerbInUse(at.segment, at.s - length - 3, at.s + 3)) return false; // a van turning off a driveway
     return !this.traffic.vehicles.some((v) => v.segment === at.segment && v.s > at.s - length - 3 && v.s - v.length < at.s + 3);
   }
 

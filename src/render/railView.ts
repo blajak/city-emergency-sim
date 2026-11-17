@@ -3,7 +3,7 @@ import { samplePolyline, subPolyline } from '../sim/math/geometry';
 import { type Vec2, add, normalize, rightOf, scale, sub } from '../sim/math/vec2';
 import type { CarModel, RailSystem } from '../sim/rail/railSystem';
 import { LANE_WIDTH } from '../sim/world/constants';
-import type { Track } from '../sim/world/rail';
+import { type Track, isPassengerTrack } from '../sim/world/rail';
 import { RoadIndex } from '../sim/world/roadIndex';
 import type { City } from '../sim/world/types';
 import { Frame, GeometryBuilder, type V3, addBox, addFacing } from './geometryBuilder';
@@ -118,7 +118,8 @@ export class RailView {
         const rear = cursor - car.length;
         cursor = rear - 1;
         const outside = front < 0.5 || rear > train.track.length - 0.5;
-        if (train.kind === 'passenger' && outside) return;
+        // Cars still (or again) inside a tunnel are not drawn; the shuttle never leaves its track.
+        if (train.kind !== 'freight' && outside) return;
         const points = train.track.points;
         const a = samplePolyline(points, Math.max(0, front - 2.6)).point;
         const b = samplePolyline(points, Math.max(0, rear + 2.6)).point;
@@ -239,7 +240,7 @@ function addStrip(b: GeometryBuilder, points: readonly Vec2[], lateral: number, 
 /** Platforms on the outer side of both passenger tracks, canopies and a footbridge. */
 function addPlatforms(b: GeometryBuilder, tracks: readonly Track[], centre: Vec2): void {
   const ends: Vec2[] = [];
-  for (const track of tracks.filter((t) => t.kind !== 'freight')) {
+  for (const track of tracks.filter((t) => isPassengerTrack(t.kind))) {
     const sc = projectS(track, centre);
     const strip = subPolyline(track.points, sc - 32, sc + 32, 2);
     addStrip(b, strip, PLATFORM_OFFSET, PLATFORM_HALF_WIDTH, 0, PLATFORM_HEIGHT, CONCRETE);
@@ -286,8 +287,17 @@ function projectS(track: Track, p: Vec2): number {
 
 /** Earth mounds with concrete portals where the line leaves the map. */
 function addTunnelPortals(b: GeometryBuilder, tracks: readonly Track[]): void {
-  const passenger = tracks.filter((t) => t.kind !== 'freight');
+  const passenger = tracks.filter((t) => isPassengerTrack(t.kind));
   if (passenger.length < 2) return;
+  // The long-distance freight siding comes out of the same hill, through its own mouth.
+  const longhaul = tracks.find((t) => t.kind === 'longhaul');
+  if (longhaul) {
+    const mouth = longhaul.points[0];
+    const inward = normalize(sub(longhaul.points[1], longhaul.points[0]));
+    const frame = new Frame(mouth.x, mouth.z, Math.atan2(inward.x, inward.z));
+    addBox(b, { frame, oz: 7.05, halfW: 3.4, halfD: 0.4, y0: 0, y1: 6.6, color: CONCRETE });
+    addBox(b, { frame, oz: 7.5, halfW: 2.4, halfD: 0.08, y0: 0.1, y1: 5.4, color: DARK });
+  }
   const [east, west] = passenger;
   const mouths = [
     { a: east.points[0], b: west.points[west.points.length - 1], inward: normalize(sub(east.points[1], east.points[0])) },

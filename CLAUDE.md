@@ -25,9 +25,12 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 - v2 "Living City" (**SPEC-v2.md** — read it first): all 7 milestones done
   (performance foundation, city generator v2, railway, buses, logistics, power + night,
   integration & polish).
-- **Next: v3 (SPEC-v3.md), Feature 1 "Long-distance freight and container cranes"** —
-  planned and agreed with the user (decisions in SPEC-v3.md), not started. Begin with F1;
-  first look at the hub layout and settle the two open questions there with the user.
+- **In progress: v3 (SPEC-v3.md), Feature 1 "Long-distance freight and container cranes".**
+  F1 (siding from the east tunnel into the hub, long-distance train) is built; see its
+  status note in SPEC-v3.md. The seed 99 DARK=0 stress regression is fixed (left-turn
+  starvation of a right-turning lorry, plus three latent kerb/yield bugs; see SPEC-v3.md),
+  and the hub is 20 m wider so the train is loco + 4 wagons + loco (79 m) again.
+  **Next: F2 (cranes + containers).**
 - Other ideas discussed with the user for v3 (not chosen yet): ambulances + hospital,
   traffic accidents, a "city runs by itself" mode with random calls, a second fire /
   police station for big cities, spreading fires, weather, gradual day/night,
@@ -115,8 +118,33 @@ Traffic safety took many iterations; stress tests found each of these:
   pulls over and stops behind a parked one blocks the responder behind it (deadlock with a
   lorry's tail in the junction). The "beside a responder keeps yielding" rule only holds
   a vehicle with a blocked kerb ahead when the responder is really side by side.
+- No junction entry into a lane whose level-crossing barrier is too close to wait clear
+  of the junction (`crossingStopsInJunction`) while the crossing is closed or forecast to
+  be closed on arrival: a lorry stopping there left its trailer across other movements.
+  The arrival time uses real acceleration; a crawl estimate starved lorries for minutes.
+- The long-distance freight train only runs with as many wagons as fit clear of the street
+  crossing (`RailSystem.planLonghaul`); a standing train on a crossing kept it closed for
+  minutes and jammed the street. The hub column is `HUB_EXTRA_WIDTH` wider so 4 wagons + 2
+  locos always fit (`longhaul.test.ts` checks several seeds).
+- Left turns yield to an oncoming head that is moving, holds a reservation, or stands at
+  its line kept out only by left-turn reservations (`heldByLeftTurns`): otherwise a stream
+  of left turns into the same exit, each reserving before the last cleared, starved a
+  right-turning lorry for minutes. Don't widen it to any conflict (that jammed seed 1337),
+  and only count holders that can go now (in the junction or first in their lane): a unit
+  queued behind the waiting left turn deadlocked seed 42.
+- Stress counts are chaotic: any traffic-rule or city-layout change moves single seeds by
+  ±10 "still" reports. Judge a fix by overlaps / jams that don't clear / the whole matrix,
+  and trace the head of a reported queue before changing rules. Tried and dropped: left
+  turns going on yellow (broke the crossing-routing test by shifting traffic).
 - Scene spots: the dispatcher searches the kerb metre by metre for a spot clear of other
-  scenes AND of vehicles standing there (a unit that just finished and waits to pull out).
+  scenes AND of vehicles standing there (a unit that just finished and waits to pull out)
+  AND of kerb in use by driveway manoeuvres (`TrafficSystem.kerbInUse`; the utility depot's
+  gate is permanent kerb use). Lorries/vans/garbage trucks spawn at bays only where
+  `kerbInUse` is false too (one spawned onto a van coming off its driveway).
+- A car ahead of a responder in the last `STOP_ZONE` metres before the line does not pull
+  over (`queuedAtLineAhead`): nobody passes there, so both waited for each other forever.
+  Only in the lane-scan loop; the "beside a responder keeps yielding" loop must keep it
+  (dropping it there made cars move back into the passing responder).
 - Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
   or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
   line for ~20 m of room beyond the junction (they always get through).

@@ -1,7 +1,7 @@
 import { projectOnPolyline, samplePolyline } from '../math/geometry';
 import type { LaneGraph, SegmentId } from '../traffic/laneGraph';
 import type { Vehicle } from '../traffic/vehicle';
-import type { Track } from '../world/rail';
+import { type Track, isPassengerTrack } from '../world/rail';
 import type { City } from '../world/types';
 import { type LaneCrossing, type LevelCrossing, crossingsByLane, findLevelCrossings } from './crossings';
 
@@ -43,14 +43,41 @@ interface Performance {
   decel: number;
 }
 
-const PERFORMANCE: Record<'passenger' | 'freight', Performance> = {
+export type TrainKind = 'passenger' | 'freight' | 'longhaul';
+
+const PERFORMANCE: Record<TrainKind, Performance> = {
   passenger: { maxSpeed: 15, accel: 0.8, decel: 1.0 },
   freight: { maxSpeed: 10, accel: 0.45, decel: 0.8 },
+  longhaul: { maxSpeed: 12, accel: 0.35, decel: 0.7 },
 };
+
+// --- Long-distance freight ----------------------------------------------------
+/**
+ * Push-pull: a locomotive at each end and up to four container wagons (79 m), as many as
+ * fit in the hub with the whole train clear of the street crossing (the hub's column of
+ * blocks is widened for this, `HUB_EXTRA_WIDTH`; fewer wagons only as a safety net).
+ */
+const LONGHAUL_MAX_WAGONS = 4;
+const LONGHAUL_MIN_WAGONS = 2;
+/** The standing train's tail keeps this far from a crossing's centre on the siding, m. */
+const LONGHAUL_CROSSING_CLEARANCE = 6;
+function longhaulCars(wagons: number): TrainCar[] {
+  const loco = { model: 'freight_loco' as const, length: 12 };
+  return [loco, ...Array.from({ length: wagons }, () => ({ model: 'container_wagon' as const, length: 12.5 })), loco];
+}
+/** Seconds between long-distance freight trains. */
+const LONGHAUL_INTERVAL = 480;
+const LONGHAUL_FIRST = 60;
+/** Time standing in the hub while containers are swapped, s. */
+const LONGHAUL_DWELL = 120;
+/** Speed coming out of the tunnel, m/s. */
+const LONGHAUL_ENTRY_SPEED = 8;
+
 /** Hard braking when something blocks the line unexpectedly, m/s². */
 const EMERGENCY_DECEL = 2.5;
 const STATION_DWELL = 20;
 const FREIGHT_DWELL = 30;
+const DWELL: Record<TrainKind, number> = { passenger: STATION_DWELL, freight: FREIGHT_DWELL, longhaul: LONGHAUL_DWELL };
 /** Seconds between passenger trains in each direction. */
 const PASSENGER_INTERVAL = 150;
 /** Close a crossing when a train could be there within this many seconds. */
@@ -71,7 +98,7 @@ const BUFFER_GAP = 3;
 
 export interface Train {
   id: number;
-  kind: 'passenger' | 'freight';
+  kind: TrainKind;
   track: Track;
   cars: TrainCar[];
   /** Total length including gaps. */
@@ -128,6 +155,8 @@ export class RailSystem {
     /** Passenger train arrivals at stations, and those less than ON_TIME_TOLERANCE late. */
     arrivals: 0,
     onTime: 0,
+    /** Long-distance freight trains that reached the hub. */
+    longhaulVisits: 0,
   };
   readonly crossings: LevelCrossing[];
   private readonly laneCrossings: Map<SegmentId, LaneCrossing[]>;
@@ -139,6 +168,8 @@ export class RailSystem {
   private vehicles: readonly Vehicle[] = [];
   private events: RailEvent[] = [];
   private readonly forecast = new Map<number, ClosureWindow[]>();
+  /** Long-distance freight service on the hub siding (null: no siding, or no room for a train). */
+  readonly longhaul: { track: Track; cars: TrainCar[]; length: number; wagons: number } | null;
 
   constructor(
     city: City,
@@ -148,7 +179,7 @@ export class RailSystem {
     this.crossings = findLevelCrossings(city.roads, graph, this.tracks);
     this.laneCrossings = crossingsByLane(this.crossings);
 
-    for (const track of this.tracks.filter((t) => t.kind !== 'freight')) {
+    for (const track of this.tracks.filter((t) => isPassengerTrack(t.kind))) {
       for (const b of city.buildings.filter((x) => x.kind === 'train_station')) {
         const centre = b.plot?.center ?? b.footprint.center;
         this.stationStops.push({ track, name: b.name ?? 'Station', s: projectOnPolyline(track.points, centre) });
@@ -159,6 +190,9 @@ export class RailSystem {
       if (t.kind === 'eastbound') this.nextDeparture.set(t.id, 2);
       if (t.kind === 'westbound') this.nextDeparture.set(t.id, 2 + PASSENGER_INTERVAL / 2);
     });
+    const siding = this.tracks.find((t) => t.kind === 'longhaul');
+    this.longhaul = siding ? this.planLonghaul(siding) : null;
+    if (this.longhaul) this.nextDeparture.set(this.longhaul.track.id, LONGHAUL_FIRST);
     const freight = this.tracks.find((t) => t.kind === 'freight');
     if (freight) this.spawnFreight(freight);
   }
@@ -209,12 +243,14 @@ export class RailSystem {
     this.events = [];
     this.updateOccupancy();
     this.updateCrossings(dt);
-    this.spawnPassengerTrains();
+    this.spawnTunnelTrains();
     for (const train of this.trains) this.moveTrain(train, dt);
-    // Passenger trains leave through the tunnel at the end of their track.
+    // Passenger trains leave through the tunnel at the end of their track; long-distance
+    // freight backs out through the tunnel it came from.
     for (let i = this.trains.length - 1; i >= 0; i--) {
       const t = this.trains[i];
-      if (t.kind === 'passenger' && t.s - t.length > t.track.length) this.trains.splice(i, 1);
+      const gone = t.kind === 'passenger' ? t.s - t.length > t.track.length : t.kind === 'longhaul' && t.dir === -1 && t.s < 0;
+      if (gone) this.trains.splice(i, 1);
     }
     return this.events;
   }
@@ -223,11 +259,19 @@ export class RailSystem {
   // Trains
   // -------------------------------------------------------------------------
 
-  private spawnPassengerTrains(): void {
+  /** Trains due out of a tunnel: passenger trains, and long-distance freight into the hub. */
+  private spawnTunnelTrains(): void {
     for (const track of this.tracks) {
       if (track.kind === 'freight') continue;
       const due = this.nextDeparture.get(track.id) ?? Infinity;
       if (this.time < due) continue;
+      if (track.kind === 'longhaul') {
+        // One track used both ways: wait until the previous train has left.
+        if (this.trains.some((t) => t.track === track)) continue;
+        this.trains.push(this.longhaulTrain(track));
+        this.nextDeparture.set(track.id, due + LONGHAUL_INTERVAL);
+        continue;
+      }
       // Wait until the previous train is clear of the tunnel mouth.
       const blocked = this.trains.some((t) => t.track === track && t.s - t.length < TRAIN_GAP);
       if (blocked) continue;
@@ -253,6 +297,41 @@ export class RailSystem {
       });
       this.nextDeparture.set(track.id, due + PASSENGER_INTERVAL);
     }
+  }
+
+  /**
+   * As many wagons as fit between the street crossing(s) on the siding and the hub buffer,
+   * so the standing train never blocks a street; no service when even two don't fit.
+   */
+  private planLonghaul(siding: Track): { track: Track; cars: TrainCar[]; length: number; wagons: number } | null {
+    const stop = siding.length - BUFFER_GAP;
+    const crossingsAt = this.crossings.flatMap((c) => c.tracks.filter((t) => t.trackId === siding.id).map((t) => t.s));
+    const clearFrom = Math.max(0, ...crossingsAt.map((s) => s + LONGHAUL_CROSSING_CLEARANCE));
+    for (let wagons = LONGHAUL_MAX_WAGONS; wagons >= LONGHAUL_MIN_WAGONS; wagons--) {
+      const cars = longhaulCars(wagons);
+      const length = trainLength(cars);
+      if (stop - length >= clearFrom) return { track: siding, cars, length, wagons };
+    }
+    return null;
+  }
+
+  /** A long-distance freight train coming out of the tunnel, heading for the hub buffer. */
+  private longhaulTrain(track: Track): Train {
+    return {
+      id: this.nextTrainId++,
+      kind: 'longhaul',
+      track,
+      cars: this.longhaul!.cars,
+      length: this.longhaul!.length,
+      s: 0,
+      prevS: 0,
+      dir: 1,
+      v: LONGHAUL_ENTRY_SPEED,
+      dwell: 0,
+      stops: [track.length - BUFFER_GAP],
+      stoppedAt: null,
+      schedule: [],
+    };
   }
 
   private spawnFreight(track: Track): void {
@@ -343,7 +422,7 @@ export class RailSystem {
     if (nextStop !== undefined && ahead(nextStop) < 0.3 && train.v < 0.5) {
       train.v = 0;
       train.stops.shift();
-      train.dwell = train.kind === 'freight' ? FREIGHT_DWELL : STATION_DWELL;
+      train.dwell = DWELL[train.kind];
       train.stoppedAt = this.placeName(train, nextStop);
       if (train.kind === 'passenger') {
         this.stats.stationStops++;
@@ -352,8 +431,10 @@ export class RailSystem {
           this.stats.arrivals++;
           if (this.time - planned < ON_TIME_TOLERANCE) this.stats.onTime++;
         }
-      } else {
+      } else if (train.kind === 'freight') {
         this.stats.freightTrips++;
+      } else {
+        this.stats.longhaulVisits++;
       }
       this.events.push({ kind: 'train_arrived', train, place: train.stoppedAt });
     }
@@ -363,9 +444,10 @@ export class RailSystem {
     train.stoppedAt = null;
     // Shuttle: at an end of the line (no stops left), reverse towards the other end.
     // (At the start it is loading at the hub with the terminal still ahead.)
-    if (train.kind !== 'freight' || train.stops.length > 0) return;
+    // Long-distance freight: done in the hub, back out into the tunnel (no more stops).
+    if (train.kind === 'passenger' || train.stops.length > 0) return;
     train.dir = train.dir === 1 ? -1 : 1;
-    train.stops = [train.dir === 1 ? train.track.length - BUFFER_GAP : BUFFER_GAP];
+    train.stops = train.kind === 'longhaul' ? [] : [train.dir === 1 ? train.track.length - BUFFER_GAP : BUFFER_GAP];
   }
 
   /** Where the train stops next (station or freight terminal), or null when it is leaving the city. */
@@ -398,6 +480,7 @@ export class RailSystem {
   }
 
   private placeName(train: Train, stopS: number): string {
+    if (train.kind === 'longhaul') return 'Freight Hub';
     if (train.kind === 'freight') return stopS < train.track.length / 2 ? 'Freight Hub' : 'Dockside Freight Terminal';
     const centre = stopS - train.length / 2;
     const station = this.stationStops.find((st) => st.track === train.track && Math.abs(st.s - centre) < 1);
@@ -487,31 +570,29 @@ export class RailSystem {
   private outlooks(): (TrainOutlook & { trackId: number })[] {
     const list: (TrainOutlook & { trackId: number })[] = [];
     for (const train of this.trains) {
-      const perf = PERFORMANCE[train.kind];
-      const dwell = train.kind === 'freight' ? FREIGHT_DWELL : STATION_DWELL;
-      const base = { trackId: train.track.id, perf, length: train.length, dwell, v: train.v };
-      // The freight shuttle reverses at each end: forecast the way back too.
-      const reversed = (head: number, dir: 1 | -1, wait: number): TrainOutlook & { trackId: number } => {
-        const back = dir === 1 ? -1 : 1;
-        const end = back === 1 ? train.track.length - BUFFER_GAP : BUFFER_GAP;
-        return { ...base, head: head - dir * train.length, dir: back, wait, v: 0, stops: [end] };
-      };
-      if (train.kind === 'freight' && train.dwell > 0 && train.stops.length === 0) {
-        // Loading at one end.
-        list.push(reversed(this.head(train), train.dir, train.dwell));
+      const base = { trackId: train.track.id, perf: PERFORMANCE[train.kind], length: train.length, dwell: DWELL[train.kind], v: train.v };
+      if (train.kind !== 'passenger' && train.dwell > 0 && train.stops.length === 0) {
+        // Loading at an end of the line: it will reverse.
+        list.push(this.reversed(train.kind, base, this.head(train), train.dir, train.dwell));
       } else {
         const now = { ...base, head: this.head(train), dir: train.dir, wait: Math.max(0, train.dwell), stops: train.stops };
         list.push(now);
         const end = train.stops[train.stops.length - 1];
-        if (train.kind === 'freight' && end !== undefined) {
-          const arrive = this.timeToCover({ ...now, stops: [] }, (end - now.head) * now.dir);
-          // Slow down to the buffers rather than run through: approximate with a stop leg.
-          const brake = now.perf.maxSpeed / now.perf.decel / 2;
-          list.push(reversed(end, train.dir, arrive + brake + FREIGHT_DWELL));
-        }
+        // Freight reverses at the end of its run: forecast the way back too.
+        if (train.kind !== 'passenger' && end !== undefined) list.push(this.wayBack(train.kind, now, end));
       }
     }
     for (const [trackId, due] of this.nextDeparture) {
+      const track = this.tracks.find((t) => t.id === trackId)!;
+      if (track.kind === 'longhaul') {
+        // The next long-distance train in, and back out after its stay in the hub.
+        if (due <= this.time && this.trains.some((t) => t.track === track)) continue;
+        const base = { trackId, perf: PERFORMANCE.longhaul, length: this.longhaul!.length, dwell: LONGHAUL_DWELL };
+        const end = track.length - BUFFER_GAP;
+        const comingIn = { ...base, head: 0, dir: 1 as const, wait: Math.max(0, due - this.time), v: LONGHAUL_ENTRY_SPEED, stops: [end] };
+        list.push(comingIn, this.wayBack('longhaul', comingIn, end));
+        continue;
+      }
       const stops = this.stationStops
         .filter((st) => st.track.id === trackId)
         .map((st) => st.s + trainLength(PASSENGER_CARS) / 2)
@@ -531,6 +612,31 @@ export class RailSystem {
       }
     }
     return list;
+  }
+
+  /**
+   * A freight train after it has reversed at an end of its line: the shuttle heads for
+   * the other end, long-distance freight back out through the tunnel (no stops).
+   */
+  private reversed(
+    kind: TrainKind,
+    base: Omit<TrainOutlook, 'head' | 'dir' | 'wait' | 'v' | 'stops'> & { trackId: number },
+    head: number,
+    dir: 1 | -1,
+    wait: number,
+  ): TrainOutlook & { trackId: number } {
+    const back = dir === 1 ? -1 : 1;
+    const track = this.tracks.find((t) => t.id === base.trackId)!;
+    const stops = kind === 'longhaul' ? [] : [back === 1 ? track.length - BUFFER_GAP : BUFFER_GAP];
+    return { ...base, head: head - dir * base.length, dir: back, wait, v: 0, stops };
+  }
+
+  /** The return run of a freight train now heading for `end` (arrive, stay, reverse). */
+  private wayBack(kind: TrainKind, now: TrainOutlook & { trackId: number }, end: number): TrainOutlook & { trackId: number } {
+    const arrive = this.timeToCover({ ...now, stops: [] }, (end - now.head) * now.dir);
+    // Slow down to the buffers rather than run through: approximate with a stop leg.
+    const brake = now.perf.maxSpeed / now.perf.decel / 2;
+    return this.reversed(kind, now, end, now.dir, arrive + brake + DWELL[kind]);
   }
 
   /** Seconds until the head has moved `distance` metres, stopping at stations on the way. */

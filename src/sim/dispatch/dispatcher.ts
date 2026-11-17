@@ -341,7 +341,9 @@ export class Dispatcher {
     // Nearest free spot to the building, metre by metre in both directions.
     for (let d = 0; d <= lane.length; d++) {
       for (const s of [clampToLane(lane, base.s + d, length), clampToLane(lane, base.s - d, length)]) {
-        if (free(s) && !this.traffic.blocksCrossing(base.segment, s, length)) return { segment: base.segment, s };
+        if (free(s) && !this.traffic.blocksCrossing(base.segment, s, length) && !this.traffic.kerbInUse(base.segment, s - length, s)) {
+          return { segment: base.segment, s };
+        }
       }
     }
     return base;

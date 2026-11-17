@@ -242,15 +242,21 @@ export function placeBuildings(
           (b) => b.regular && !b.rail && !b.park && !usedBlocks.has(b) && (anyDistrict || rule.districts.includes(districtKind(blockCenter(b)))),
         );
       let candidates = inDistricts(false);
+      let anyDistrict = false;
       // The city always needs its power plant: in a small town without a regular
       // industrial block it goes to any free regular block.
-      if (candidates.length === 0 && kind === 'power_plant') candidates = inDistricts(true);
+      if (candidates.length === 0 && kind === 'power_plant') {
+        candidates = inDistricts(true);
+        anyDistrict = true;
+      }
       orderCandidates(candidates, rule.prefer, rng, mapCenter, districts);
       for (const block of candidates) {
         const site = blockSite(block, network, rng);
         if (!site || !isFree(site.plot)) continue;
         const [fw, fd] = rule.main;
         const footprint = mainStructure(site.plot, fw, fd);
+        // A block on a district border: the building itself must stand in the right district.
+        if (!anyDistrict && !rule.districts.includes(districtKind(footprint.center))) continue;
         const spec: BuildingSpec = {
           kind,
           width: footprint.halfW * 2,

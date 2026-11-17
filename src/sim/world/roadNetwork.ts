@@ -17,6 +17,13 @@ const BASE_ROWS = 4;
 const SPACING_X = 96;
 const SPACING_Z = 84;
 const JITTER = 6;
+/** Cities with at least this many columns get the freight line (hub in the last block of the rail row). */
+export const FREIGHT_MIN_COLS = 9;
+/**
+ * The last column of blocks is this much wider in freight cities, so the Freight Hub
+ * holds a whole long-distance train (2 locos + 4 wagons, 79 m) clear of the east street.
+ */
+export const HUB_EXTRA_WIDTH = 20;
 
 const REMOVED_EDGES = new Set(['h:2:1', 'v:1:3']);
 
@@ -115,7 +122,8 @@ export function generateRoadLayout(rng: Rng, sizeScale = 1): CityLayout {
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      const x = (c - (COLS - 1) / 2) * SPACING_X + rng.range(-JITTER, JITTER);
+      const wider = c === COLS - 1 && COLS >= FREIGHT_MIN_COLS ? HUB_EXTRA_WIDTH : 0;
+      const x = (c - (COLS - 1) / 2) * SPACING_X + wider + rng.range(-JITTER, JITTER);
       const z = (r - (ROWS - 1) / 2) * SPACING_Z + rng.range(-JITTER, JITTER);
       nodes.push({ id: nodes.length, pos: vec2(x, z), edges: [], signalized: false, clearance: 0 });
     }
