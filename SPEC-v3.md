@@ -5,7 +5,8 @@ feature by feature. Each feature is planned with the user first, then built mile
 milestone with tests (and the stress test for anything touching traffic or rail).
 
 **Status (2026-11-18):** Feature 1 is done and deployed (F1 commit e1fdb4d, F2 + F3 commit
-37a0bd0, CI green). The next feature is not chosen yet (ideas in CLAUDE.md).
+37a0bd0, CI green). **Next: Feature 2, match day at the stadium** (planned, see below; start
+with M1).
 
 ## Feature 1: Long-distance freight and container cranes — done (F1–F3)
 
@@ -279,3 +280,74 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
 - **Shuttle away:** a **buffer stack** under the crane; the crane swaps with the stack when
   the shuttle is not there, and the shuttle later takes containers from the stack.
   Neither train waits for the other.
+
+## Feature 2: Match day at the stadium — planned, not started
+
+Agreed with the user on 2026-11-18 (plan only; to be built in the next session, starting
+with M1).
+
+### Idea
+
+The user organises a football match: click the stadium, **Organise a match**. Over the next
+minutes fans drive in from all over town and park in a car park next to the stadium; a
+police car and an ambulance stand by at the kerb outside. When the final whistle blows
+everyone leaves at about the same time, and the car park's exits jam the streets around.
+
+### User decisions
+
+1. **Car park in the neighbouring block** (the stadium already fills its own block, ~64–78 ×
+   68–100 m in the tested cities; it exists from `?scale=4`, one per city, at the map edge in
+   a residential district). The stadium stays as it is.
+2. **Anyone may drive through the car park** (no access flag like the Dockside yard road),
+   about two ways in and out.
+3. **It never overfills:** every fan car has a reserved space before it sets off; fans ≤
+   spaces.
+4. **A police car and a new ambulance** stand by outside the stadium during the match, at
+   the kerb (like lorries at shops), not in the car park. **Ambulances are new:** a unit type
+   based at the hospital, used only for match duty for now (groundwork for a later
+   "ambulances + accidents" feature).
+5. **Units on match duty take no other calls**; calls queue or the user adds units at the
+   station. With no free unit, the match takes the first one that becomes free.
+6. **Timing (sim time):** fans arrive over **3 min**, the match lasts **2 min**, then everyone
+   leaves within ~20 s.
+
+### Plan (milestones)
+
+- **M1 Car park.** New site kind `car_park` ("Stadium car park") in a regular, unused block
+  sharing a street with the stadium (placed right after the stadium; no match feature when
+  there is none). Two **aisles** run through it from street to street, ~1/3 and ~2/3 across
+  the block: real two-way `RoadEdge`s (street edges split at unsignalised T-junctions, like
+  `world/yardRoad.ts`, generalised), **right turn in / right turn out only** (the street lane
+  between a T and the corner junction is only ~6–11 m). Spaces: parallel kerb parking along
+  both lanes of both aisles, ~6.5 m each (~40 spaces), using the existing kerb parking
+  (`parkingOffset`). Frontage, bays, lamps, bus planning and level crossings skip the aisles;
+  civilians don't spawn on them. Render: asphalt, white bay lines, no sidewalks inside.
+  Tests: a car park in every city with a stadium, aisles connected, turns, spaces.
+- **M2 Ambulance.** `UnitType` `ambulance`, model `ambulance` (white box van, red stripe,
+  blue beacons), station = the hospital (1 unit, 1–3 via the station card). No incident type
+  uses it yet. Units list and station card show it; vehicle card describes it.
+- **M3 Match.** `sim/events/matchSystem.ts`: phases `idle → arriving (180 s) → playing
+  (120 s) → leaving (until the car park is empty) → idle`.
+  - Fans: new civilian cars (`role: 'fan'` or a flag) that pull out from the kerb at
+    residential buildings ≥ ~300 m from the stadium, spread over the arrival phase, each
+    sent to its reserved space; they park there. At the whistle each sets off after 0–20 s
+    to a random residential kerb and is removed when it has parked. Count = spaces (or a bit
+    fewer). Own RNG.
+  - Duty: the dispatcher sends a free police car and ambulance to a kerb spot by the stadium
+    (the usual scene search) with a new status `on_duty` (not available); they go back when
+    the car park is empty.
+  - A score for fun: random goals during the match ("Home 2 : 1 Away"), a toast at the
+    final whistle.
+- **M4 UI, tests, polish.** Click the stadium for a **stadium card**: phase and countdown,
+  fans parked x / spaces, score, units on duty, the **Organise a match** button (disabled
+  while one is on). Tests: whole match lifecycle (nobody parks outside a reserved space, the
+  car park never overfills, everyone leaves, units go and come back, collision-free).
+  Stress test with a match (`MATCH=1` starts one in the stress run). README, screenshot.
+
+### Risks to watch
+
+- 40 cars merging out of kerb spaces and turning right onto the street at the same time:
+  check the merge logic copes (no lock between a merging car and the lane queue).
+- Short street lanes between a car-park T and the corner junction (like the yard road).
+- Responders driving through the jam after the match (pre-emption, pulling over in a queue).
+- The duty units' kerb spot must not be where fans turn in or out.

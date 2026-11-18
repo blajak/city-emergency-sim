@@ -35,9 +35,13 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
     (`container_yard` building removed); two traffic fixes from the stress test; crane
     card, container counts in the city pulse, README + docs/containers.jpg.
   Details and every user decision are in SPEC-v3.md.
-  **Next:** pick the next v3 feature with the user (ideas below).
-- Other ideas discussed with the user for v3 (not chosen yet): ambulances + hospital,
-  traffic accidents, a "city runs by itself" mode with random calls, a second fire /
+  **Next: Feature 2 "Match day at the stadium"** — planned with the user (car park in the
+  neighbouring block with two through aisles, fans arrive over 3 min, 2 min match, everyone
+  leaves at the whistle; police car + a new ambulance on duty). Plan, decisions and
+  milestones M1–M4 in SPEC-v3.md; start with M1 (car park).
+- Other ideas discussed with the user for v3 (not chosen yet): ambulances for medical calls
+  (the ambulance unit comes with Feature 2), traffic accidents with a tow truck, roadworks,
+  a port with a container ship at Dockside, a "city runs by itself" mode with random calls, a second fire /
   police station for big cities, spreading fires, weather, gradual day/night,
   pedestrians; and the lorry starvation case under "Known, open".
 - Milestone 7 (steps 7a–7f in SPEC-v2.md): **7a** incident priorities (+ diverting an
