@@ -4,9 +4,12 @@ v2 "Living City" is done (SPEC-v2.md, all 7 milestones). v3 grows the city's ser
 feature by feature. Each feature is planned with the user first, then built milestone by
 milestone with tests (and the stress test for anything touching traffic or rail).
 
+**Status (2026-11-18):** Feature 1 is done and deployed (F1 commit e1fdb4d, F2 + F3 commit
+37a0bd0, CI green). The next feature is not chosen yet (ideas in CLAUDE.md).
+
 ## Feature 1: Long-distance freight and container cranes — done (F1–F3)
 
-Agreed with the user on 2026-11-16; to be built in the next session, starting with F1.
+Agreed with the user on 2026-11-16; built 2026-11-17 (F1) and 2026-11-18 (F2, F3).
 
 ### Idea
 
@@ -49,7 +52,7 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   **Status: done (2026-11-17), commit e1fdb4d, CI green.** Siding `longhaul`
   (track id 3, `LONGHAUL_OFFSET` 11.25) from the east edge into the hub with its own tunnel
   mouth; train kind `longhaul` every 480 s (first at 60 s), dwell 120 s (placeholder for the
-  crane), backs out and disappears in the tunnel; forecast, card and stats cover it. New
+  crane; since F2 a 20 s minimum, then it waits for the crane), backs out and disappears in the tunnel; forecast, card and stats cover it. New
   traffic rule found by the logistics test: no junction entry into a lane whose level
   crossing barrier is too close to wait clear of the junction while it is closed or will
   be on arrival (`crossingStopsInJunction`, accelerating ETA).
@@ -108,7 +111,8 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   Replaces the static decorative gantries and random stacks of the hub and the Dockside
   terminal (`render/buildingKinds.ts`). The long-distance train's fixed 120 s dwell
   (`LONGHAUL_DWELL`) becomes "until the crane is done".
-  **Ask the user at the start of F2:** (1) one hub crane spanning both freight tracks
+  **Status: done (2026-11-18), commit 37a0bd0, CI green** (F2a and F2b below).
+  **Asked the user at the start of F2 (answers below):** (1) one hub crane spanning both freight tracks
   (siding + shuttle) and the stack row — proposed, simplest; (2) should containers show
   where they come from (e.g. distinct colours for containers arriving from outside) so
   their way to Dockside can be followed?
@@ -121,6 +125,9 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   terminal's back street under the crane's cantilever, the crane puts an outside container on
   its chassis, the lorry drives it to a warehouse / factory, swaps it there (off-screen) for a
   city container and brings that back; the crane takes it into the stacks.
+  *(Point 4 was changed with the user before F2b: no bay on the back street but a private
+  yard road under a wider crane, and the lorry brings the same container back with its
+  colour unchanged; see the F2b plan.)*
   **F2 design:**
   - All containers are 40 ft (12.2 × 2.44 × 2.6 m), one per wagon (the wagon model becomes a
     flat; containers are drawn separately). Long-distance train: 4 wagons, arrives full of
@@ -147,31 +154,33 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
     starts at the hub with 2 outside containers.
   - Milestones: **F2a** containers, cranes, trains wait for the crane, render (gantries,
     instanced containers, flat wagons, old decor removed), tests. **F2b** container lorries
-    (Dockside bay under the cantilever, chassis trailer, trips to warehouses / factories),
-    stress test.
+    (first planned with a bay under a cantilever, built with the yard road instead; chassis
+    trailer, trips to warehouses / factories / big shops), stress test.
   - **Safety valve (user, 2026-11-18):** with more than `OUTSIDE_BACKLOG_LIMIT` (8) outside
     containers waiting in the stacks, the next long-distance train brings its city-bound
     wagons empty and the hub crane fills them with outside containers (sent back out).
-  - **F2a status (2026-11-18): built, not committed.** `sim/freight/containerSystem.ts`
+  - **F2a status: done (2026-11-18), commit 37a0bd0.** `sim/freight/containerSystem.ts`
     (`Simulation.containers`, own RNG so traffic randomness is unchanged),
     `RailSystem.departureHold` (minimum dwell 15 s shuttle / 20 s long-distance, then wait
     for the crane; forecast uses the crane's remaining work, `EXPECTED_STAY` for stops not
     reached yet), `render/freightView.ts`, flat `container_wagon`. Measured on seed 1337:
-    moves 17–37 s, long-distance stay 90–130 s, shuttle stay 15–105 s. Until F2b, Dockside's
-    city stock (6) runs out after ~3 trains; the safety valve then keeps the stacks bounded.
+    moves 17–37 s, long-distance stay 90–130 s, shuttle stay 15–105 s. (Before F2b, Dockside's
+    city stock ran out after ~3 trains; the container lorries now bring containers back.)
   - **Container length (user, 2026-11-18):** stays 12.2 m on the 11.6 m trailer (0.3 m
     overhang at each end, invisible from the camera; traffic bodies unchanged).
-- **F2b plan (agreed direction 2026-11-18, details to confirm before building):**
+- **F2b (planned with the user 2026-11-18; done, commit 37a0bd0).** The plan as agreed;
+  where the build differs, the status note below says what was built:
   - **No container yard in town.** The decorative `container_yard` building (random stacks
     and a fake gantry on the east edge of industrial districts) goes away; its block gets
     ordinary industrial buildings. Dockside is the only place lorries get containers.
-  - **Yard road through Dockside (user's idea).** A private two-lane road inside the
-    terminal block, parallel to the track on the stack side (≈ 17 m from the track), from a
+  - **Yard road through Dockside (user's idea).** A private road (built with one lane,
+    15 m from the track) inside the terminal block, parallel to the track on the stack side, from a
     T-junction on one street of the block to a T-junction on the opposite one. It is a real
     `RoadEdge` (the street edges are split at the T nodes, before buildings are placed), so
     car-following, queues, junction reservations and level-crossing rules apply as anywhere.
-    Only container lorries may use it: `RoadEdge.access = 'yard'`, the router skips yard edges
-    unless asked (`allowYard`), and it is used one way only (in at one end, out at the other).
+    Only container lorries may use it: `RoadEdge.yard`, the router skips yard edges unless
+    asked (`Router.find(…, yard)`, `Vehicle.yardAccess`), and it is one way (in at one end,
+    out at the other).
     Nothing else uses yard edges: no civilian spawns or destinations, no addresses, bays,
     frontage, bus lines, lamps or trees; drawn as a concrete yard lane without sidewalks.
     The terminal's plot check ignores its own yard road.
@@ -197,7 +206,7 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   - **Settled with the user (2026-11-18):** lorries enter from the south street (no level
     crossing there) and wait inside the yard; leaving onto the north street they wait at
     the yard's stop line while the crossing is closed or about to close.
-  - **F2b status (2026-11-18): built, not committed.** `world/yardRoad.ts` (`addYardRoad`,
+  - **F2b status: done (2026-11-18), commit 37a0bd0.** `world/yardRoad.ts` (`addYardRoad`,
     run after `planRail`, before buildings; `RoadEdge.yard`, `RailPlan.yardRoad`), road
     `YARD_ROAD_OFFSET` = 15 m from the track (the crossing on the north street then lies
     wholly on the street lane beyond the T); lane graph: one centred lane, connectors to /
@@ -225,16 +234,24 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
     | 42   | 3      | 5      |
     | 99   | 3      | 4      |
     | 5    | 3      | 2      |
-  - **Risks:** the network change moves every big city's stress counts (chaotic, judge by
-    overlaps / jams that don't clear); the T on the street the freight track crosses is
-    ~17 m from the level crossing (`crossingStopsInJunction` keeps an exiting lorry in the
-    yard while the crossing is closed or about to be); a lorry waiting to turn out across a
-    steady stream (the "lorry starvation" family) — no priority rule unless stress shows it.
-- **F3 Polish.** Click a crane for a card ("Moving container 2 of 4 · next train in 3 min");
-  container counts in the city pulse if useful; tests (crane sequence finishes before
-  departure, trains never meet on a track or a closed/occupied crossing, containers are
-  conserved), stress test, README, screenshot / GIF.
-  **Status: done (2026-11-18), not committed.** Crane card: a gantry crane is a
+  - **Risks (as planned; the stress runs above found none of them in practice):** the network
+    change moves every big city's stress counts (chaotic, judge by overlaps / jams that don't
+    clear); the T on the street the freight track crosses is 15 m from the level crossing
+    (`crossingStopsInJunction` keeps an exiting lorry in the yard while the crossing is closed
+    or about to be); a lorry turning out across a steady stream can't happen any more (right
+    turn out only).
+- **F3 Polish.** Done (2026-11-18), commit 37a0bd0:
+  - [x] Click a crane for a card (the move, trains it works for and their work left, lorries,
+    stacks; e.g. "Moving a container: long-distance train → stack", "Due in 3 min")
+  - [x] Container counts in the city pulse
+  - [x] Tests: crane works only on standing trains, so the sequence finishes before departure
+    (`containers.test.ts`); trains never on an occupied crossing (`longhaul.test.ts`, rail
+    tests); every container accounted for; yard road and lorries; crane card; pulse
+  - [x] Stress test (F2b table above)
+  - [x] README and `docs/containers.jpg`
+  - [ ] GIF — skipped: the demo GIF stays about the emergency services
+
+  **Notes:** a gantry crane is a
   `Subject` (`{ kind: 'crane', yard }`) in the vehicle card (what it moves, the trains it
   works for with the work left, lorries at Dockside, stacks, moves; Follow works), picked by
   its legs and girders (not the space under them). City pulse: Containers in (by rail to

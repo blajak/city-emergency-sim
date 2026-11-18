@@ -25,15 +25,16 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
 - v2 "Living City" (**SPEC-v2.md** — read it first): all 7 milestones done
   (performance foundation, city generator v2, railway, buses, logistics, power + night,
   integration & polish).
-- **In progress: v3 (SPEC-v3.md), Feature 1 "Long-distance freight and container cranes".**
-  F1 (siding from the east tunnel into the hub, long-distance train) is built; see its
-  status note in SPEC-v3.md. The seed 99 DARK=0 stress regression is fixed (left-turn
-  starvation of a right-turning lorry, plus three latent kerb/yield bugs; see SPEC-v3.md),
-  and the hub is 20 m wider so the train is loco + 4 wagons + loco (79 m) again.
-  **F2a** (containers, gantry cranes at the hub and Dockside, trains wait for the crane)
-  and **F2b** (private yard road through Dockside, two container lorries, `container_yard`
-  building removed) and **F3** (crane card, container counts in the city pulse, README +
-  docs/containers.jpg) are built; details and user decisions in SPEC-v3.md.
+- **v3 (SPEC-v3.md), in progress feature by feature.** Feature 1 "Long-distance freight
+  and container cranes" is **done and deployed** (CI green):
+  - F1 (commit e1fdb4d): siding from the east tunnel into the hub, long-distance train
+    (loco + 4 wagons + loco, 79 m; the hub column is 20 m wider), plus the seed 99 stress
+    fix (left-turn starvation of a right-turning lorry) and three latent kerb/yield bugs.
+  - F2 + F3 (commit 37a0bd0): containers and gantry cranes at the hub and Dockside, trains
+    wait for the crane; private yard road through Dockside with two container lorries
+    (`container_yard` building removed); two traffic fixes from the stress test; crane
+    card, container counts in the city pulse, README + docs/containers.jpg.
+  Details and every user decision are in SPEC-v3.md.
   **Next:** pick the next v3 feature with the user (ideas below).
 - Other ideas discussed with the user for v3 (not chosen yet): ambulances + hospital,
   traffic accidents, a "city runs by itself" mode with random calls, a second fire /
