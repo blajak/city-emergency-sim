@@ -5,8 +5,8 @@ feature by feature. Each feature is planned with the user first, then built mile
 milestone with tests (and the stress test for anything touching traffic or rail).
 
 **Status (2026-11-18):** Feature 1 is done and deployed (F1 commit e1fdb4d, F2 + F3 commit
-37a0bd0, CI green). Feature 2, match day at the stadium, is built (M1–M3 commit 74ee344, M4
-not committed yet).
+37a0bd0, CI green). Feature 2, match day at the stadium, is done and deployed (M1–M3 commit 74ee344, M4
+commit 1dee976).
 
 ## Feature 1: Long-distance freight and container cranes — done (F1–F3)
 
@@ -281,9 +281,9 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   the shuttle is not there, and the shuttle later takes containers from the stack.
   Neither train waits for the other.
 
-## Feature 2: Match day at the stadium — built (M1–M4)
+## Feature 2: Match day at the stadium — done (M1–M4)
 
-Agreed with the user on 2026-11-18; built the same day (M1–M3 commit 74ee344, M4 below).
+Agreed with the user on 2026-11-18; built the same day (M1–M3 commit 74ee344, M4 commit 1dee976).
 
 ### Idea
 
@@ -468,7 +468,7 @@ everyone leaves at about the same time, and the car park's exits jam the streets
   while one is on). Tests: whole match lifecycle (nobody parks outside a reserved space, the
   car park never overfills, everyone leaves, units go and come back, collision-free).
   Stress test with a match (`MATCH=1` starts one in the stress run). README, screenshot.
-  **Status: built (2026-11-18), not committed.** `ui/stadiumCard.ts`: click the stadium or its
+  **Status: done (2026-11-18), commit 1dee976, CI green.** `ui/stadiumCard.ts`: click the stadium or its
   car park (from `?scale=4`) for the card: phase with countdown ("Fans arriving · kick-off in
   2:51", "Playing · 63' · 0:36 left", "Full time · fans leaving"), the score (the last result
   between matches), fans parked / spaces and on the way (after the whistle: still parked /

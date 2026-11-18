@@ -38,7 +38,7 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   **Feature 2 "Match day at the stadium"** (plan 93ad13a): M1–M3 in commit 74ee344
   (stadium on the island of a one-way loop car park, one gate, duty spaces for the police car
   and the ambulance; ambulance unit at the hospital; `sim/events/matchSystem.ts`: fans arrive
-  over 3 min, 2 min match, everyone leaves at the whistle). **M4 built, not committed:** stadium
+  over 3 min, 2 min match, everyone leaves at the whistle). **M4 done and deployed (commit 1dee976, CI green):** stadium
   card (`ui/stadiumCard.ts`, "Organise a match"), match toasts, `MATCH=1` in the stress test,
   README + docs/match.jpg, and three fixes the match stress found (see the rules below).
   Details and every user decision in SPEC-v3.md.
