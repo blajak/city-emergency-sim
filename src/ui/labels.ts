@@ -22,6 +22,7 @@ export const UNIT_STATUS: Record<UnitStatus, StatusLabel> = {
   en_route: { label: 'En route', tone: 'info' },
   on_scene: { label: 'On scene', tone: 'active' },
   returning: { label: 'Returning', tone: 'neutral' },
+  on_duty: { label: 'On duty', tone: 'info' },
 };
 
 export const INCIDENT_NAME: Record<IncidentType, string> = { fire: 'Fire', crime: 'Crime' };

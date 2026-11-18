@@ -272,7 +272,7 @@ export class DispatchPanel {
     const where = incident ? formatAddress(this.sim.city, this.sim.city.buildings[incident.buildingId]) : '';
     return `
       <li class="item unit-${unit.type}">
-        <span class="item-icon">${unit.type === 'fire' ? ICONS.engine : ICONS.car}</span>
+        <span class="item-icon">${unit.type === 'fire' ? ICONS.engine : unit.type === 'ambulance' ? ICONS.ambulance : ICONS.car}</span>
         <div class="item-body">
           <div class="item-row"><strong>${unit.name}</strong></div>
           ${where ? `<div class="item-row muted"><span>${where}</span></div>` : ''}

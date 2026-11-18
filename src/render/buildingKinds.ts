@@ -76,6 +76,8 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addSportsHall(builders, b);
     case 'pool':
       return addPool(builders, b);
+    case 'car_park':
+      return addCarPark(builders, b);
     case 'stadium':
       return addStadium(builders, b);
     case 'waste_depot':
@@ -607,15 +609,30 @@ function addPool(builders: Builders, b: Building): void {
   sign(builders, frame, 'SWIMMING POOL', 10, b.height - 1.4, oz + halfD + 0.1);
 }
 
+/** Stadium car park: grass and a pay booth (the loop and its spaces are drawn with the roads). */
+function addCarPark(builders: Builders, b: Building): void {
+  const frame = plotFrame(b);
+  const plot = b.plot!;
+  // Grass round the loop and on the island (the roads and spaces are drawn with the streets).
+  addFlatRect(builders.solid, frame, 0, 0, plot.halfW, plot.halfD, 0.06, color(0x7fb35a));
+  const booth = frameOf(b);
+  box(builders.solid, booth, 0, 0, b.footprint.halfW, b.footprint.halfD, 0, 2.6, color(b.facadeColor), color(0x3c6e9f));
+  box(builders.solid, booth, 0, 0, b.footprint.halfW + 0.02, b.footprint.halfD + 0.02, 1.2, 2.1, GLASS);
+  box(builders.solid, booth, 0, 0, b.footprint.halfW + 0.4, b.footprint.halfD + 0.4, 2.6, 2.85, color(0x3c6e9f));
+}
+
 function addStadium(builders: Builders, b: Building): void {
   const frame = plotFrame(b);
   const plot = b.plot!;
   const W = plot.halfW;
   const D = plot.halfD;
-  addFlatRect(builders.solid, frame, 0, 0, W, D, 0.06, CONCRETE);
-  // Pitch with mowing stripes and lines.
-  const pw = W - 13;
-  const pd = D - 13;
+  // On the car park island: concrete up to the loop lane (a pavement round it).
+  addFlatRect(builders.solid, frame, 0, 0, W + 1.8, D + 1.8, 0.07, CONCRETE);
+  // Three tiers of stands on a big stadium, two on a smaller one; the pitch takes the rest.
+  const tiers = Math.min(W, D) >= 30 ? 3 : 2;
+  const margin = 1 + tiers * 3.5 + 1.5;
+  const pw = W - margin;
+  const pd = D - margin;
   addFlatRect(builders.solid, frame, 0, 0, pw, pd, 0.08, color(0x4f9a46));
   const stripes = 8;
   for (let i = 0; i < stripes; i += 2) {
@@ -627,9 +644,9 @@ function addStadium(builders: Builders, b: Building): void {
   addFlatRect(builders.solid, frame, 0, pd - 1, pw - 1, 0.1, 0.1, LINE);
   addFlatRect(builders.solid, frame, -pw + 1, 0, 0.1, pd - 1, 0.1, LINE);
   addFlatRect(builders.solid, frame, pw - 1, 0, 0.1, pd - 1, 0.1, LINE);
-  // Stands: three stepped tiers on every side.
+  // Stands: stepped tiers on every side.
   const seat = [color(0xc62828), color(0x1565c0), color(0xd8dde2)];
-  for (let tier = 0; tier < 3; tier++) {
+  for (let tier = 0; tier < tiers; tier++) {
     const inner = 1 + tier * 3.5;
     const y1 = 3 + tier * 3.3;
     box(builders.solid, frame, 0, -(pd + inner + 1.75), pw + inner + 3.5, 1.75, 0, y1, shade(0xb0b5ba, 0.9), seat[tier]);
@@ -638,7 +655,8 @@ function addStadium(builders: Builders, b: Building): void {
     box(builders.solid, frame, pw + inner + 1.75, 0, 1.75, pd + inner, 0, y1, shade(0xb0b5ba, 0.9), seat[tier]);
   }
   // Roof over the main stand and floodlights in the corners.
-  box(builders.solid, frame, 0, -(pd + 7), pw + 6, 5.5, b.height + 1, b.height + 1.5, color(0xe8eaec));
+  const roofY = 3 + (tiers - 1) * 3.3 + 4.4;
+  box(builders.solid, frame, 0, -(pd + (margin + 1) / 2), pw + margin / 2, (margin - 2) / 2, roofY, roofY + 0.5, color(0xe8eaec));
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       box(builders.solid, frame, sx * (W - 2), sz * (D - 2), 0.4, 0.4, 0, 28, STEEL);

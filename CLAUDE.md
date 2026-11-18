@@ -35,10 +35,12 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
     (`container_yard` building removed); two traffic fixes from the stress test; crane
     card, container counts in the city pulse, README + docs/containers.jpg.
   Details and every user decision are in SPEC-v3.md.
-  **Next: Feature 2 "Match day at the stadium"** — planned with the user (car park in the
-  neighbouring block with two through aisles, fans arrive over 3 min, 2 min match, everyone
-  leaves at the whistle; police car + a new ambulance on duty). Plan, decisions and
-  milestones M1–M4 in SPEC-v3.md; start with M1 (car park).
+  **In progress: Feature 2 "Match day at the stadium"** (plan 93ad13a). Built, not yet
+  committed: M1/M1b/M1c (stadium on the island of a one-way loop car park, one gate, duty
+  spaces for the police car and the ambulance), M2 (ambulance unit at the hospital), M3
+  (`sim/events/matchSystem.ts`: fans arrive over 3 min, 2 min match, everyone leaves at the
+  whistle). **Next: M4** (stadium card with "Organise a match", toasts, `MATCH=1` stress,
+  README). Details and every user decision in SPEC-v3.md.
 - Other ideas discussed with the user for v3 (not chosen yet): ambulances for medical calls
   (the ambulance unit comes with Feature 2), traffic accidents with a tow truck, roadworks,
   a port with a container ship at Dockside, a "city runs by itself" mode with random calls, a second fire /
@@ -104,7 +106,10 @@ Traffic safety took many iterations; stress tests found each of these:
   last 10 m before the stop line (`STOP_ZONE`).
 - Parked vehicles use `parkingOffset = 1.5 + width/2` so even a fire engine can pass.
 - Yielding vehicles crawl (1.5 m/s) instead of stopping (prevents lock chains);
-  fire engines (too wide) don't yield; no two units overtake towards each other.
+  fire engines (too wide) don't yield; no two units overtake towards each other
+  (`oncomingOvertaker`: a unit already moving over counts anywhere ahead on the stretch, not
+  only within `ONCOMING_RANGE` — two fire engines starting from both ends of a 68 m street
+  met in the middle; if both just started, the lower id goes on).
 - Long vehicles: pose from front + rear on the real path (`previousSegment`).
 - Level crossings: vehicles stop at the barrier unless clearly past it (`stopS + 0.5`);
   never enter the tracks without room beyond (only vehicles *ahead* count).
@@ -135,6 +140,10 @@ Traffic safety took many iterations; stress tests found each of these:
   of the junction (`crossingStopsInJunction`) while the crossing is closed or forecast to
   be closed on arrival: a lorry stopping there left its trailer across other movements.
   The arrival time uses real acceleration; a crawl estimate starved lorries for minutes.
+  Also when the crossing is open but the queue beyond the tracks leaves no room for the
+  whole vehicle — only if its tail would really be in the junction (`stopS - 0.3 - length
+  < 1`): a lorry waiting there locked two dark junctions (seed 42), while checking it for
+  every near barrier starved lorries at a busy crossing with a short lane beyond.
 - The long-distance freight train only runs with as many wagons as fit clear of the street
   crossing (`RailSystem.planLonghaul`); a standing train on a crossing kept it closed for
   minutes and jammed the street. The hub column is `HUB_EXTRA_WIDTH` wider so 4 wagons + 2
@@ -171,11 +180,25 @@ Traffic safety took many iterations; stress tests found each of these:
 - A bus pulling out of the depot yard is kerb use (`addKerbUsers`), and a vehicle driving
   along the kerb towards the gate holds it (`KERB_APPROACH`): a car yielding to a responder
   drove along the kerb into a bus coming out (seed 7, F2b).
+- Stadium car park (`world/carPark.ts`): the stadium stands on the island inside the loop
+  (`stadiumIsland`, one block for both); one gate, a two-way access road, a one-way loop
+  (two `oneWay` edges, so nobody circles). The two spaces before the exit belong to the duty
+  units (`MatchSystem.dutySpaces`); `Router.findTimed` lets a unit starting there drive out. Routes may use it only when they start or end there
+  (`Router.find`), wanderers never turn in, responders never route through it. Out of it right
+  turns only. The access road must hold a queuing car's whole body: a short one let a tail hang
+  back over the gate turn onto the loop, where the car behind couldn't see it.
+- Long vehicles (> 10 m) route round lanes shorter than `SHORT_LANE` (17 m) when they can
+  (`Router.find(…, long)`): two lorries on the 13 m street lane between a yard T and the corner
+  each stopped with the tail in the other's junction (gridlock for minutes).
 - Trains at a yard leave only when the crane has nothing more for them (`departureHold`);
   `docked()` must not depend on `dwell > 0` (it is decremented before the hold is asked).
 - Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
   or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
   line for ~20 m of room beyond the junction (they always get through).
+- Known, open (F2 M1c): `crossingRouting.test.ts` sums two sets of calls because the gain from
+  the train forecast varies a lot with where the trains happen to be; in a scan of 8 call sets
+  two were worse with the forecast than without (the crane's departure hold?). Seed 42 at
+  scale 10 shows more single > 60 s waits at dark junctions since the stadium moved (13–18).
 - Known, open (found in 7b, seed 7 scale 10 DARK=2): a lorry at the stop line can be
   starved by a stream of lorries on a long-conflicting movement (each reserves from
   further away), and a responder queued behind it waits too. Possible fix: give a vehicle
@@ -183,7 +206,7 @@ Traffic safety took many iterations; stress tests found each of these:
 
 ## How to verify changes
 
-- `npx tsc --noEmit`, `npm test` (≈57 tests, ~1–2 min), `npm run build`.
+- `npx tsc --noEmit`, `npm test` (≈86 tests, ~2 min), `npm run build`.
 - For anything touching traffic/rail/vehicles, also run the on-demand stress test
   `src/sim/stress.test.ts` (skipped in `npm test`):
   `STRESS=1 SEEDS=1337,7,42,99,5 SCALES=1,10 MINUTES=12 DARK=0 npx vitest run src/sim/stress.test.ts`

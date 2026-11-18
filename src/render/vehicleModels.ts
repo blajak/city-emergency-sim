@@ -10,6 +10,7 @@ const BUMPER = new THREE.Color(0x3a3d40);
 const WHITE = new THREE.Color(0xf4f4f0);
 const STEEL = new THREE.Color(0xaeb4ba);
 const POLICE_BLUE = new THREE.Color(0x1f4fa3);
+const AMBULANCE_RED = new THREE.Color(0xd32f2f);
 const DISPLAY = new THREE.Color(0x1b1b1b);
 const DISPLAY_TEXT = new THREE.Color(0xffb300);
 const DOOR = new THREE.Color(0x1e2a33);
@@ -100,6 +101,23 @@ export function buildVehicleModel(model: VehicleModel, length: number, width: nu
       box(0, -0.15, 0.62, 0.18, 1.48, 1.56, BUMPER);
       lights(0.62);
       beacons.push({ x: -0.35, y: 1.64, z: -0.15 }, { x: 0.35, y: 1.64, z: -0.15 });
+      break;
+    }
+    case 'ambulance': {
+      // Box ambulance: cab in front, tall white box with a red band and a blue roof stripe,
+      // light bars on the cab and at the back of the box.
+      const cab = 1.6;
+      wheels(0.66, [hl - 1.0, -hl + 1.2]);
+      box(0, -cab / 2, hw, hl - cab / 2, 0.38, 2.75, paint);
+      box(0, hl - cab / 2, hw - 0.08, cab / 2, 0.38, 1.9, paint);
+      box(0, hl + 0.01, hw - 0.2, 0.02, 1.15, 1.8, GLASS);
+      box(0, hl - 0.75, hw - 0.07, 0.5, 1.2, 1.75, GLASS);
+      box(0, -cab / 2, hw + 0.02, hl - cab / 2 - 0.05, 1.15, 1.45, AMBULANCE_RED);
+      box(0, -cab / 2, hw - 0.3, hl - cab / 2 - 0.3, 2.75, 2.8, POLICE_BLUE);
+      box(0, -hl - 0.02, 0.8, 0.02, 0.5, 2.4, STEEL); // rear doors
+      box(0, hl - cab / 2, 0.55, 0.18, 1.9, 1.98, BUMPER);
+      lights(0.65);
+      beacons.push({ x: -0.4, y: 2.06, z: hl - cab / 2 }, { x: 0.4, y: 2.06, z: hl - cab / 2 }, { x: -hw + 0.25, y: 2.9, z: -hl + 0.2 }, { x: hw - 0.25, y: 2.9, z: -hl + 0.2 });
       break;
     }
     case 'van': {

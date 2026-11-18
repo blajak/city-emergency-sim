@@ -7,5 +7,6 @@ export const ICONS = {
   crime: svg('<path d="M12 3l8 3v6c0 4.5-3.3 8-8 9-4.7-1-8-4.5-8-9V6z"/><path d="M12 8v5"/><path d="M12 16.5v.5"/>'),
   pause: svg('<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>'),
   engine: svg('<rect x="2" y="9" width="13" height="8" rx="1"/><path d="M15 12h4l3 3v2h-7"/><circle cx="6" cy="18" r="1.6"/><circle cx="18" cy="18" r="1.6"/><path d="M3 6l9 3"/>'),
+  ambulance: svg('<rect x="2" y="7" width="13" height="10" rx="1"/><path d="M15 11h4l3 3v3h-7"/><circle cx="6" cy="18" r="1.6"/><circle cx="18" cy="18" r="1.6"/><path d="M8.5 9.5v5M6 12h5"/>'),
   car: svg('<path d="M4 16v-3l2-5h12l2 5v3"/><rect x="3" y="13" width="18" height="4" rx="1"/><circle cx="7" cy="18" r="1.4"/><circle cx="17" cy="18" r="1.4"/><path d="M10 5h4"/>'),
 } as const;

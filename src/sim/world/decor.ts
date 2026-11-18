@@ -60,7 +60,7 @@ export function placeLamps(roads: RoadNetwork, buildings: Building[], rail: Rail
   const bays = [...buildings.flatMap((b) => (b.bay ? [b.bay] : [])), ...stops.map((stop) => ({ ...stop, length: stop.length + 14 }))];
   const lamps: LampSpot[] = [];
   const buildingGrid = buildingIndex(buildings);
-  for (const edge of roads.edges.filter((e) => !e.yard)) {
+  for (const edge of roads.edges.filter((e) => !e.yard && !e.carPark)) {
     for (const side of [1, -1] as const) {
       // Alternate sides so lamps are staggered.
       const start = side === 1 ? 14 : 14 + LAMP_SPACING / 2;

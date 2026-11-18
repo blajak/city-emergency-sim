@@ -2,8 +2,10 @@ import type { RoutePoint } from '../routing/router';
 import type { Vehicle } from '../traffic/vehicle';
 import type { Building, BuildingId } from '../world/types';
 
-export type UnitType = 'fire' | 'police';
-export type UnitStatus = 'at_station' | 'patrolling' | 'en_route' | 'on_scene' | 'returning';
+/** Ambulances (based at the hospital) only stand by at stadium matches for now. */
+export type UnitType = 'fire' | 'police' | 'ambulance';
+/** on_duty: standing by at an event (a stadium match); takes no calls. */
+export type UnitStatus = 'at_station' | 'patrolling' | 'en_route' | 'on_scene' | 'returning' | 'on_duty';
 
 export type UnitId = number;
 export type IncidentId = number;
@@ -18,6 +20,8 @@ export interface Unit {
   slot: number;
   status: UnitStatus;
   incidentId: IncidentId | null;
+  /** Kerb spot of the event it stands by at (status `on_duty`). */
+  duty: RoutePoint | null;
   vehicle: Vehicle;
 }
 

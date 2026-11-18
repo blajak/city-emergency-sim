@@ -191,7 +191,7 @@ export class TrafficSystem {
   // -------------------------------------------------------------------------
 
   spawnCivilians(count: number): void {
-    const lanes = this.graph.lanes.filter((l) => l.length > 25 && !l.yard);
+    const lanes = this.graph.lanes.filter((l) => l.length > 25 && !l.yard && !l.carPark);
     let spawned = 0;
     let attempts = 0;
     while (spawned < count && attempts++ < count * 50) {
@@ -320,7 +320,7 @@ export class TrafficSystem {
   private routeFrom(vehicle: Vehicle, destination: RoutePoint, crossingAware = false) {
     const from = { segment: vehicle.segment, s: vehicle.s };
     if (crossingAware && this.crossings.expectedWait) return this.router.findTimed(from, destination, this.crossingDelay);
-    return this.router.find(from, destination, vehicle.yardAccess);
+    return this.router.find(from, destination, vehicle.yardAccess, vehicle.length > LONG_VEHICLE);
   }
 
   /** Expected seconds waiting at level crossings while driving a lane from `fromS` to `toS`. */
@@ -740,6 +740,16 @@ export class TrafficSystem {
     for (const lc of this.crossings.crossingsOn(connector.toLane)) {
       if (lc.stopS > vehicle.length + vehicle.driver.minGap + 2) continue; // room to wait off the junction
       if (lc.crossing.state !== 'open') return true;
+      // Open, but the queue beyond the tracks leaves no room for the whole vehicle: it would
+      // wait at the barrier with its tail in the junction (the barrier rule in
+      // `levelCrossingObstacles`). A lorry doing that locked two dark junctions on a 61 m
+      // street with the queue ahead of it (seed 42, F2 M1c). Only when its tail would really be
+      // in the junction (≥ 1 m clear otherwise): checking it whenever the barrier is near
+      // starved lorries at a busy crossing whose short lane beyond was rarely empty.
+      if (lc.stopS - 0.3 - vehicle.length >= 1) continue;
+      for (const other of this.bySegment.get(connector.toLane) ?? []) {
+        if (other !== vehicle && other.s > lc.stopS && other.s - other.length < lc.endS + vehicle.length + 1.5) return true;
+      }
       // Time to reach the barrier, accelerating from the current speed (not a crawl estimate:
       // with trains every minute or so, a pessimistic guess would never find a gap).
       const d = toLine + connector.length + lc.stopS;
@@ -961,12 +971,18 @@ export class TrafficSystem {
     const opposite = this.oppositeLane.get(lane.id);
     if (opposite === undefined) return false;
     const oppositeLength = this.segment(opposite).length;
-    return (this.bySegment.get(opposite) ?? []).some(
-      (o) =>
-        isResponding(o) &&
-        (o.lateral < -0.05 || o.id < vehicle.id) &&
-        Math.abs(oppositeLength - o.s - vehicle.s) < ONCOMING_RANGE + (o.length + vehicle.length) / 2,
-    );
+    return (this.bySegment.get(opposite) ?? []).some((o) => {
+      if (!isResponding(o)) return false;
+      // Distance between the two along the street (negative once they have passed).
+      const gap = oppositeLength - o.s - vehicle.s;
+      const reach = ONCOMING_RANGE + (o.length + vehicle.length) / 2;
+      if (gap < -reach) return false;
+      // Already moving over: anywhere ahead on this stretch, not only within range — two fire
+      // engines that started from both ends of a 68 m street met in the middle (seed 99, DARK=2).
+      // If both have just started, the lower id goes on.
+      if (o.lateral < -0.05) return !(vehicle.lateral < -0.05 && vehicle.id < o.id);
+      return o.id < vehicle.id && gap < reach;
+    });
   }
 
   /** No parked vehicle at the curb right next to us. */
@@ -1298,8 +1314,11 @@ export class TrafficSystem {
   }
 
   private chooseConnector(lane: Lane): SegmentId {
-    // Wandering cars never turn into the private yard road.
-    const options = lane.outConnectors.map((id) => this.segment(id) as Connector).filter((c) => !(this.segment(c.toLane) as Lane).yard);
+    // Wandering cars never turn into the private yard road or the stadium car park.
+    const options = lane.outConnectors.map((id) => this.segment(id) as Connector).filter((c) => {
+      const to = this.segment(c.toLane) as Lane;
+      return !to.yard && !to.carPark;
+    });
     const total = options.reduce((sum, c) => sum + TURN_WEIGHTS[c.turn], 0);
     let roll = this.rng.next() * total;
     for (const c of options) {

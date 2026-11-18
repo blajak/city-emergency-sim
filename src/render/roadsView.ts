@@ -3,6 +3,7 @@ import { samplePolyline, subPolyline } from '../sim/math/geometry';
 import { type Vec2, add, normalize, rightOf, scale, sub, vec2 } from '../sim/math/vec2';
 import { CROSSWALK_LENGTH, LANE_WIDTH, ROAD_WIDTH, STREET_CLEARANCE } from '../sim/world/constants';
 import { approachDistance } from '../sim/world/roadGeometry';
+import { PARKING_STRIP, SPACE_LENGTH, loopSpaceFronts } from '../sim/world/carPark';
 import type { BusStop, City, DeliveryBay, RoadEdge, RoadNode } from '../sim/world/types';
 import { GeometryBuilder } from './geometryBuilder';
 
@@ -43,17 +44,25 @@ export function createRoadsView(city: City): THREE.Mesh {
     b.addGroundPolygon(circle(park.pond.center, park.pond.radius, 28), Y.pond, COLORS.pond);
   }
 
-  for (const edge of network.edges.filter((e) => !e.yard)) {
+  for (const edge of network.edges.filter((e) => !e.yard && !e.carPark)) {
     addRibbon(b, edge.points, STREET_CLEARANCE, Y.sidewalk, COLORS.sidewalk);
     addRibbon(b, edge.points, ROAD_WIDTH / 2, Y.asphalt, COLORS.asphalt);
   }
+  // Car park aisles: the road plus a row of kerb spaces on each side, no sidewalks.
+  for (const edge of network.edges.filter((e) => e.carPark)) addCarParkRoad(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
   for (const node of network.nodes) {
     // Rounded corners: the sidewalk disc fills the outer notch, the asphalt disc the turning radius.
+    // (Junctions inside the car park have no sidewalks.)
+    if (node.edges.every((id) => network.edges[id].carPark)) {
+      // The gate gets a small turning area; where the loop halves meet, the road just goes on.
+      if (node.edges.length >= 3) b.addGroundPolygon(circle(node.pos, LANE_WIDTH * 0.9, 16), Y.asphalt, COLORS.asphalt);
+      continue;
+    }
     b.addGroundPolygon(circle(node.pos, STREET_CLEARANCE * 1.42, 24), Y.sidewalk, COLORS.sidewalk);
     b.addGroundPolygon(circle(node.pos, (ROAD_WIDTH / 2) * 1.2, 24), Y.asphalt, COLORS.asphalt);
   }
 
-  for (const edge of network.edges.filter((e) => !e.yard)) addMarkings(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
+  for (const edge of network.edges.filter((e) => !e.yard && !e.carPark)) addMarkings(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
   // Private yard road through the Dockside terminal: one lane, no sidewalks, yellow edge lines.
   for (const edge of network.edges.filter((e) => e.yard)) {
     addRibbon(b, edge.points, LANE_WIDTH / 2 + 0.6, Y.asphalt, COLORS.asphalt);
@@ -76,6 +85,32 @@ export function createRoadsView(city: City): THREE.Mesh {
   mesh.receiveShadow = true;
   mesh.name = 'roads';
   return mesh;
+}
+
+/**
+ * Stadium car park roads: the two-way access road from the gate, and the one-way loop with
+ * a row of kerb spaces on its right (same positions as the simulation's, `loopSpaceFronts`).
+ */
+function addCarParkRoad(b: GeometryBuilder, edge: RoadEdge, from: RoadNode, to: RoadNode): void {
+  if (!edge.oneWay) {
+    addRibbon(b, edge.points, ROAD_WIDTH / 2, Y.asphalt, COLORS.asphalt);
+    const start = from.clearance + 1;
+    const end = edge.length - to.clearance - 1;
+    for (let s = start; s + DASH <= end; s += DASH * 2) addRibbon(b, subPolyline(edge.points, s, s + DASH, 1), 0.08, Y.marking, COLORS.marking);
+    return;
+  }
+  const lane = LANE_WIDTH / 2 + 0.3;
+  addRibbon(b, edge.points, lane, Y.asphalt, COLORS.asphalt);
+  const strip = PARKING_STRIP / 2;
+  for (const front of loopSpaceFronts(edge.points, approachDistance(from), approachDistance(to))) {
+    const space = subPolyline(edge.points, front - SPACE_LENGTH, front, 1);
+    addRibbon(b, space, strip, Y.asphalt, COLORS.asphalt, lane + strip);
+    for (const at of [front - SPACE_LENGTH, front]) {
+      const { point, dir } = samplePolyline(edge.points, at);
+      const n = rightOf(dir);
+      addRibbon(b, [add(point, scale(n, lane - 0.1)), add(point, scale(n, lane + PARKING_STRIP - 0.2))], 0.07, Y.marking, COLORS.marking);
+    }
+  }
 }
 
 /** Lay-by: asphalt cut into the sidewalk with an outline (yellow for deliveries, white for buses). */

@@ -40,17 +40,30 @@ interface CachedPath {
  * not depend on the positions within them, so paths are cached per
  * (start segment, target segment) pair.
  */
+/** Lanes shorter than this are avoided by long vehicles (see `Router.short`), m. */
+export const SHORT_LANE = 17;
+
 export class Router {
   private readonly cache = new Map<string, CachedPath | null>();
   private readonly maxSpeed: number;
   /** Yard road lanes and the connectors into them (container lorries only). */
   private readonly yard = new Set<SegmentId>();
+  /** Car park lanes and the connectors into them: only for routes that start or end there. */
+  private readonly carPark = new Set<SegmentId>();
+  /**
+   * Lanes too short for a long vehicle (and the connectors into them): an articulated lorry
+   * stopped at the end of one keeps its tail in the junction behind (two lorries passing
+   * each other on the 13 m bit of street between a yard T-junction and the corner locked up).
+   */
+  private readonly short = new Set<SegmentId>();
 
   constructor(private readonly graph: LaneGraph) {
     this.maxSpeed = Math.max(...graph.segments.map((s) => s.speedLimit));
     for (const seg of graph.segments) {
       const lane = seg.kind === 'lane' ? seg : graph.segments[seg.toLane];
       if (lane.kind === 'lane' && lane.yard) this.yard.add(seg.id);
+      if (lane.kind === 'lane' && lane.carPark) this.carPark.add(seg.id);
+      if (lane.kind === 'lane' && lane.length < SHORT_LANE) this.short.add(seg.id);
     }
   }
 
@@ -59,8 +72,11 @@ export class Router {
     this.cache.clear();
   }
 
-  /** `yard`: the route may use the private Dockside yard road. */
-  find(from: RoutePoint, to: RoutePoint, yard = false): Route | null {
+  /**
+   * `yard`: the route may use the private Dockside yard road. `long`: a long vehicle, kept
+   * off lanes shorter than `SHORT_LANE` where it can (falls back to them when there is no other way).
+   */
+  find(from: RoutePoint, to: RoutePoint, yard = false, long = false): Route | null {
     const start = this.graph.segments[from.segment];
     const target = this.graph.segments[to.segment];
     const travel = (seg: Segment, length: number) => length / seg.speedLimit;
@@ -70,10 +86,12 @@ export class Router {
       return { segments: [from.segment], time: travel(start, d), distance: d };
     }
 
-    const key = `${from.segment}>${to.segment}${yard ? 'y' : ''}`;
+    const key = `${from.segment}>${to.segment}${yard ? 'y' : ''}${long ? 'l' : ''}`;
     let path = this.cache.get(key);
     if (path === undefined) {
-      path = this.search(start, target, yard);
+      // The car park is no short cut: only routes to or from it may use it.
+      const carPark = this.carPark.has(start.id) || this.carPark.has(target.id);
+      path = (long ? this.search(start, target, yard, carPark, true) : null) ?? this.search(start, target, yard, carPark, false);
       this.cache.set(key, path);
     }
     if (!path) return null;
@@ -114,6 +132,8 @@ export class Router {
     let best = Infinity;
     let bestLast: SegmentId | null = null;
     let bestWait = 0;
+    // A unit standing by in the car park drives out of it.
+    const carParkOk = this.carPark.has(start.id);
 
     while (open.size > 0) {
       const id = open.pop()!;
@@ -123,7 +143,8 @@ export class Router {
       if (base + heuristic(this.graph.segments[id]) >= best) break;
 
       for (const nextId of successors(this.graph.segments[id])) {
-        if (this.yard.has(nextId)) continue; // responders never cut through the yard
+        // Responders never cut through the yard or the car park.
+        if (this.yard.has(nextId) || (this.carPark.has(nextId) && !carParkOk)) continue;
         const next = this.graph.segments[nextId];
         if (nextId === target.id) {
           const w = delay(nextId, startTime + base, 0, to.s);
@@ -174,8 +195,13 @@ export class Router {
     return { time, wait };
   }
 
+  private leadsTo(id: SegmentId, lane: SegmentId): boolean {
+    const seg = this.graph.segments[id];
+    return seg.kind === 'connector' && seg.toLane === lane;
+  }
+
   /** A* from the end of `start` to the beginning of `target`. */
-  private search(start: Segment, target: Segment, yard: boolean): CachedPath | null {
+  private search(start: Segment, target: Segment, yard: boolean, carPark: boolean, avoidShort: boolean): CachedPath | null {
     const goal = target.points[0];
     const heuristic = (seg: Segment) => distance(seg.points[seg.points.length - 1], goal) / this.maxSpeed;
 
@@ -195,6 +221,8 @@ export class Router {
 
       for (const nextId of successors(seg)) {
         if (!yard && this.yard.has(nextId)) continue;
+        if (!carPark && this.carPark.has(nextId)) continue;
+        if (avoidShort && this.short.has(nextId) && nextId !== target.id && !this.leadsTo(nextId, target.id)) continue;
         if (nextId === target.id) return this.unwind(start.id, id, previous, base);
         const next = this.graph.segments[nextId];
         const c = base + next.length / next.speedLimit;

@@ -40,10 +40,13 @@ describe('10× city layout', () => {
 
   it('keeps every site off roads, sidewalks and the railway, and apart from each other', () => {
     const roads = new RoadIndex(city.roads);
+    // The stadium stands inside its car park's loop (its clearance is checked in carPark.test.ts).
+    const streets = new RoadIndex({ ...city.roads, edges: city.roads.edges.filter((e) => !e.carPark) });
+    const inCarPark = (a: Building, b: Building) => [a.kind, b.kind].sort().join() === 'car_park,stadium';
     const grid = new SpatialGrid<Building>(32);
     for (const b of city.buildings) {
       for (const corner of obbCorners(site(b))) {
-        expect(roads.isNear(corner, STREET_CLEARANCE), `${b.kind} ${b.id} on a road`).toBe(false);
+        expect((b.kind === 'stadium' ? streets : roads).isNear(corner, STREET_CLEARANCE), `${b.kind} ${b.id} on a road`).toBe(false);
         if (!b.plot || !['train_station', 'freight_hub', 'freight_terminal'].includes(b.kind)) {
           for (const corridor of city.rail.corridors) {
             expect(distanceToPolyline(corner, corridor.points), `${b.kind} ${b.id} on the railway`).toBeGreaterThan(corridor.halfWidth - 1);
@@ -54,6 +57,7 @@ describe('10× city layout', () => {
       if (b.plot) for (const corner of obbCorners(b.footprint)) expect(pointInObb(corner, b.plot, 0.01)).toBe(true);
       const shrunk = { ...site(b), halfW: site(b).halfW - 0.06, halfD: site(b).halfD - 0.06 };
       for (const other of grid.query(obbBox(shrunk))) {
+        if (inCarPark(b, other)) continue;
         expect(obbOverlap(shrunk, site(other)), `${b.kind} ${b.id} overlaps ${other.kind} ${other.id}`).toBe(false);
       }
       grid.insert(b, obbBox(site(b)));

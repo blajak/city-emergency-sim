@@ -31,6 +31,10 @@ export interface RoadEdge {
   to: NodeId;
   /** Private road through the Dockside terminal (container lorries only, one way from → to). */
   yard?: boolean;
+  /** Aisle through the stadium car park (anyone may drive it; kerb spaces for fans, no frontage). */
+  carPark?: boolean;
+  /** One way only, from → to (one lane on the centre line), like the yard road. */
+  oneWay?: boolean;
   /** Centre line from `from` to `to`. Straight roads have 2 points. */
   points: Vec2[];
   length: number;
@@ -66,6 +70,7 @@ export type BuildingKind =
   | 'sports_hall'
   | 'pool'
   | 'stadium'
+  | 'car_park'
   // industry and utilities
   | 'factory'
   | 'warehouse'

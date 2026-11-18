@@ -7,7 +7,14 @@ import { UNIT_STATUS } from './labels';
 import { placeCard } from './cardPlacement';
 
 const REFRESH_INTERVAL_MS = 250;
-const NOUN: Record<UnitType, string> = { fire: 'engine', police: 'patrol car' };
+const NOUN: Record<UnitType, string> = { fire: 'engine', police: 'patrol car', ambulance: 'ambulance' };
+const TITLE: Record<UnitType, string> = { fire: 'Fire Station', police: 'Police Station', ambulance: 'Hospital' };
+const NOTE: Record<UnitType, string> = {
+  fire: 'Engines return here after every call.',
+  police: 'One car always patrols. A car at the station takes over when the patroller is dispatched.',
+  ambulance: 'Ambulances stand by outside the stadium during a match.',
+};
+const ICON: Record<UnitType, string> = { fire: ICONS.engine, police: ICONS.car, ambulance: ICONS.ambulance };
 
 /** Floating card for a station: lists its units and adds / removes them. */
 export class StationCard {
@@ -48,7 +55,7 @@ export class StationCard {
   }
 
   open(station: Building, screen: { x: number; y: number }): void {
-    this.type = station.kind === 'fire_station' ? 'fire' : 'police';
+    this.type = station.kind === 'fire_station' ? 'fire' : station.kind === 'hospital' ? 'ambulance' : 'police';
     this.el.hidden = false;
     this.render(true);
     // Keep the card inside the map area (left of the panel on desktop).
@@ -70,15 +77,12 @@ export class StationCard {
     const type = this.type;
     const units = dispatcher.unitsOfType(type);
     const full = units.length >= MAX_UNITS_PER_STATION;
-    const title = type === 'fire' ? 'Fire Station' : 'Police Station';
-    const note =
-      type === 'police'
-        ? 'One car always patrols. A car at the station takes over when the patroller is dispatched.'
-        : 'Engines return here after every call.';
+    const title = TITLE[type];
+    const note = NOTE[type];
 
     this.el.innerHTML = `
       <header class="station-card-header unit-${type}">
-        <span class="item-icon">${type === 'fire' ? ICONS.engine : ICONS.car}</span>
+        <span class="item-icon">${ICON[type]}</span>
         <div>
           <strong>${title}</strong>
           <div class="muted">${units.length} / ${MAX_UNITS_PER_STATION} ${NOUN[type]}s</div>

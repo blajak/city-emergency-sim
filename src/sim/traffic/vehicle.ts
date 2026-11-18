@@ -10,6 +10,7 @@ export type VehicleModel =
   | 'van'
   | 'fire_engine'
   | 'police_car'
+  | 'ambulance'
   | 'bus'
   /** Articulated lorry: `truck` is the tractor, drawn with a `trailer`. */
   | 'truck'
@@ -19,7 +20,7 @@ export type VehicleModel =
   | 'garbage_truck'
   | 'delivery_van'
   | 'utility_van';
-export type VehicleRole = 'civilian' | 'fire' | 'police' | 'bus' | 'truck' | 'garbage' | 'delivery' | 'utility';
+export type VehicleRole = 'civilian' | 'fire' | 'police' | 'ambulance' | 'bus' | 'truck' | 'garbage' | 'delivery' | 'utility';
 
 /** Roles that stop at kerb spots for a short while and then leave on their own. */
 export const SERVICE_ROLES: readonly VehicleRole[] = ['bus', 'truck', 'garbage', 'delivery', 'utility'];
@@ -44,6 +45,7 @@ export const VEHICLE_DIMENSIONS: Record<VehicleModel, VehicleDimensions> = {
   van: { length: 5.2, width: 2.0 },
   fire_engine: { length: 8.2, width: 2.5 },
   police_car: { length: 4.8, width: 1.9 },
+  ambulance: { length: 6.2, width: 2.15 },
   bus: { length: BUS_LENGTH, width: BUS_WIDTH },
   // Whole articulated lorry (tractor + trailer), as traffic sees it.
   truck: { length: 15.2, width: 2.55 },

@@ -5,6 +5,7 @@ import { buildingLabel } from './address';
 import { BUS_LENGTH, CROSSWALK_LENGTH } from './constants';
 import { districtAt } from './districts';
 import type { RailPlan } from './rail';
+import { STATION_KERB_HALF } from './buildings';
 import { approachDistance } from './roadGeometry';
 import { type CityLayout, directionFromNode, railRow } from './roadNetwork';
 import type {
@@ -174,7 +175,7 @@ function findRoute(
     for (const edgeId of node.edges) {
       if (edgeId === state.via) continue; // no U-turns
       const edge = network.edges[edgeId];
-      if (edge.yard) continue; // container lorries only
+      if (edge.yard || edge.carPark) continue; // container lorries only / no bus line through the car park
       const turn = arriving && dot(arriving, directionFromNode(edge, node.id)) < Math.cos(Math.PI / 6) ? TURN_PENALTY : 0;
       const next = edge.from === node.id ? edge.to : edge.from;
       const cost = state.cost + edge.length + turn;
@@ -218,6 +219,7 @@ class StopPlacer {
   ) {
     for (const b of buildings) {
       if (b.bay) this.reserve(b.bay.edgeId, b.bay.side, b.bay.s, b.bay.length / 2, false);
+      if (b.kind === 'hospital') this.reserve(b.address.edgeId, b.address.side, b.address.s, STATION_KERB_HALF, true);
       if (b.kind === 'fire_station' || b.kind === 'police_station') {
         this.reserve(b.address.edgeId, b.address.side, b.address.s, b.footprint.halfW + 14, true);
       }

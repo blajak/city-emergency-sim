@@ -276,6 +276,11 @@ body {
   background: #e6ecfb;
 }
 
+.unit-ambulance .item-icon {
+  color: #c62828;
+  background: #fdeaea;
+}
+
 .item-body {
   min-width: 0;
 }

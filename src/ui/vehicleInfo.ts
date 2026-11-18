@@ -127,10 +127,10 @@ function describeUnit(sim: Simulation, unit: Unit): SubjectInfo {
   if (street && unit.status !== 'at_station') rows.push(['On', street]);
   return {
     title: unit.name,
-    kind: unit.type === 'fire' ? 'Fire engine' : 'Police car',
+    kind: unit.type === 'fire' ? 'Fire engine' : unit.type === 'ambulance' ? 'Ambulance' : 'Police car',
     status: UNIT_STATUS[unit.status].label,
     rows,
-    color: unit.type === 'fire' ? 0xc62f25 : 0x3557c9,
+    color: unit.type === 'fire' ? 0xc62f25 : unit.type === 'ambulance' ? 0xd32f2f : 0x3557c9,
   };
 }
 

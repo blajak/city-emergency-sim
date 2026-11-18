@@ -17,6 +17,8 @@ export type Turn = 'straight' | 'left' | 'right';
 
 /** Lane speed limit (45 km/h). */
 export const LANE_SPEED_LIMIT = 12.5;
+/** Speed limit in the stadium car park (about 20 km/h), m/s. */
+export const CAR_PARK_SPEED_LIMIT = 6;
 const STRAIGHT_SPEED_LIMIT = 10;
 /**
  * Two connectors closer than this (centre line to centre line) could let
@@ -42,6 +44,8 @@ export interface Lane extends SegmentBase {
   fromNode: NodeId;
   toNode: NodeId;
   outConnectors: SegmentId[];
+  /** On the stadium car park's aisles (kerb spaces for fans). */
+  carPark: boolean;
   /** On the private Dockside yard road (container lorries only). */
   yard: boolean;
 }
@@ -74,9 +78,10 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
   for (const edge of network.edges) {
     const start = approachDistance(network.nodes[edge.from]);
     const end = edge.length - approachDistance(network.nodes[edge.to]);
-    // The yard road is one way (from → to), its single lane on the centre line.
-    for (const forward of edge.yard ? [true] : [true, false]) {
-      const lateral = edge.yard ? 0 : (LANE_WIDTH / 2) * (forward ? 1 : -1);
+    // One-way roads (the yard road, the car park loop): a single lane on the centre line.
+    const oneWay = edge.yard || edge.oneWay;
+    for (const forward of oneWay ? [true] : [true, false]) {
+      const lateral = oneWay ? 0 : (LANE_WIDTH / 2) * (forward ? 1 : -1);
       const count = Math.max(2, Math.ceil((end - start) / 2));
       const points: Vec2[] = [];
       for (let i = 0; i <= count; i++) {
@@ -93,9 +98,10 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
         toNode: forward ? edge.to : edge.from,
         points,
         length: polylineLength(points),
-        speedLimit: LANE_SPEED_LIMIT,
+        speedLimit: edge.carPark ? CAR_PARK_SPEED_LIMIT : LANE_SPEED_LIMIT,
         outConnectors: [],
         yard: !!edge.yard,
+        carPark: !!edge.carPark,
       };
       segments.push(lane);
       lanes.push(lane);
@@ -110,8 +116,13 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
       for (const to of outgoing) {
         if (from.edgeId === to.edgeId) continue; // no U-turns
         const connector = makeConnector(segments.length, node.id, from, to);
-        // Into and out of the yard only by turning right (no waiting across the street).
-        if ((from.yard || to.yard) && connector.turn !== 'right') continue;
+        // Between a street and the yard only by turning right, out of the car park too (nobody
+        // waits across the street); into the car park also by turning left (the gate is mid-block,
+        // with room to wait on either side). Inside the car park, only the turns the loop is drawn with.
+        const intoCarPark = to.carPark && !from.carPark;
+        if ((from.yard !== to.yard || from.carPark !== to.carPark) && connector.turn !== 'right' && !(intoCarPark && connector.turn === 'left')) continue;
+        // (At the car park gate: in from the access road, out onto it; never round the loop again.)
+        if (from.carPark && to.carPark && node.edges.length >= 3 && connector.turn !== 'right') continue;
         segments.push(connector);
         connectors.push(connector);
         atNode.push(connector);

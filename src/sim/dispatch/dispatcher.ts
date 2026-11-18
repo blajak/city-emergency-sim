@@ -1,4 +1,4 @@
-import type { Rng } from '../math/rng';
+import { type Rng, createRng } from '../math/rng';
 import type { RoutePoint } from '../routing/router';
 import type { TrafficEvent, TrafficSystem } from '../traffic/trafficSystem';
 import { VEHICLE_DIMENSIONS, type Vehicle, type VehicleModel } from '../traffic/vehicle';
@@ -28,9 +28,11 @@ const SCENE_GAP = 1.5;
 /** Parking slot offsets in front of a station, in vehicle lengths. */
 const SLOT_ORDER = [0, 1, -1];
 
-const UNIT_SPECS: Record<UnitType, { model: VehicleModel; color: number; label: string; station: Building['kind'] }> = {
-  fire: { model: 'fire_engine', color: 0xc62f25, label: 'Engine', station: 'fire_station' },
-  police: { model: 'police_car', color: 0xf4f6f8, label: 'Patrol', station: 'police_station' },
+/** Body colours; a unit picks one at random when it is added (ambulances: white or yellow). */
+const UNIT_SPECS: Record<UnitType, { model: VehicleModel; colors: number[]; label: string; station: Building['kind'] }> = {
+  fire: { model: 'fire_engine', colors: [0xc62f25], label: 'Engine', station: 'fire_station' },
+  police: { model: 'police_car', colors: [0xf4f6f8], label: 'Patrol', station: 'police_station' },
+  ambulance: { model: 'ambulance', colors: [0xf7f7f5, 0xf5d000], label: 'Ambulance', station: 'hospital' },
 };
 
 /**
@@ -45,6 +47,8 @@ export class Dispatcher {
   /** Called when a more urgent call takes a unit away from the one it was driving to. */
   onDiverted: ((unit: Unit, from: Incident, to: Incident) => void) | null = null;
   private nextUnitId = 1;
+  /** Own RNG for unit colours, so adding units doesn't shift the incidents' randomness. */
+  private readonly paintRng: Rng;
   private nextIncidentId = 1;
   private time = 0;
 
@@ -52,7 +56,9 @@ export class Dispatcher {
     private readonly city: City,
     private readonly traffic: TrafficSystem,
     private readonly rng: Rng,
-  ) {}
+  ) {
+    this.paintRng = createRng(city.seed ^ 0x7a1b5c3d);
+  }
 
   // -------------------------------------------------------------------------
   // Public API
@@ -102,12 +108,13 @@ export class Dispatcher {
       slot,
       status: 'at_station',
       incidentId: null,
+      duty: null,
       vehicle: undefined as unknown as Vehicle,
     };
     unit.vehicle = this.traffic.spawnParked({
       role: type,
       model: spec.model,
-      color: spec.color,
+      color: spec.colors.length > 1 ? this.paintRng.pick(spec.colors) : spec.colors[0],
       at: this.stationSlot(unit),
     });
     this.units.push(unit);
@@ -128,6 +135,34 @@ export class Dispatcher {
     this.traffic.removeVehicle(unit.vehicle);
     this.units.splice(this.units.indexOf(unit), 1);
     return true;
+  }
+
+  /**
+   * Sends the available unit of `type` that gets there first to stand by at an event's
+   * reserved `spot` (its space in the stadium car park, driven to without sirens). It takes
+   * no calls until `releaseDuty`. Null when none is free.
+   */
+  assignDuty(type: UnitType, spot: RoutePoint): Unit | null {
+    let best: { unit: Unit; time: number } | null = null;
+    for (const unit of this.units) {
+      if (unit.type !== type || !this.isAvailable(unit)) continue;
+      const time = this.traffic.travelTime(unit.vehicle, spot);
+      if (time < (best?.time ?? Infinity)) best = { unit, time };
+    }
+    if (!best || !this.traffic.sendTo(best.unit.vehicle, spot, false)) return null;
+    const { unit } = best;
+    unit.status = 'on_duty';
+    unit.duty = spot;
+    unit.vehicle.sirens = false;
+    return unit;
+  }
+
+  /** Ends a unit's stand-by: it takes a queued call, or goes back to its station. */
+  releaseDuty(unit: Unit): void {
+    if (unit.status !== 'on_duty') return;
+    unit.duty = null;
+    unit.status = 'returning';
+    if (!this.serveQueue(unit)) this.traffic.sendTo(unit.vehicle, this.stationSlot(unit), false);
   }
 
   unitsOfType(type: UnitType): Unit[] {
@@ -321,9 +356,21 @@ export class Dispatcher {
   /** Curb stop in front of the incident building that no other unit is using. */
   private sceneFor(incident: Incident, unit: Unit): RoutePoint {
     if (incident.scene && incident.unitId === unit.id) return incident.scene;
-    const building = this.city.buildings[incident.buildingId];
+    return this.kerbSpotNear(this.city.buildings[incident.buildingId], unit, incident);
+  }
+
+  /**
+   * Free kerb nearest to a building for `unit`: clear of other calls' scenes, units standing by
+   * at an event, anything standing at the kerb, level crossings and kerb in use.
+   */
+  private kerbSpotNear(building: Building, unit: Unit, incident: Incident | null): RoutePoint {
+    const base = curbStop(this.traffic.graph, this.city.roads, building, unit.vehicle.length);
+    return this.freeKerbSpot(base, unit, incident) ?? base;
+  }
+
+  /** Free kerb for `unit` nearest to `base` on its lane (see `kerbSpotNear`), or null. */
+  private freeKerbSpot(base: RoutePoint, unit: Unit, incident: Incident | null): RoutePoint | null {
     const length = unit.vehicle.length;
-    const base = curbStop(this.traffic.graph, this.city.roads, building, length);
     const lane = this.traffic.segment(base.segment);
     // Kerb space in use: other calls' scenes, and anything standing at the kerb
     // (e.g. a unit that has just finished here and is waiting to pull out).
@@ -331,13 +378,14 @@ export class Dispatcher {
       ...this.incidents
         .filter((i) => i !== incident && i.status !== 'resolved' && i.scene?.segment === base.segment)
         .map((i) => ({ s: i.scene!.s, length: this.unit(i.unitId)?.vehicle.length ?? length })),
+      ...this.units.filter((u) => u !== unit && u.duty?.segment === base.segment).map((u) => ({ s: u.duty!.s, length: u.vehicle.length })),
       ...this.traffic.vehicles
         .filter((v) => v !== unit.vehicle && v.segment === base.segment && v.maneuver !== 'driving')
         .map((v) => ({ s: v.s, length: v.length })),
     ];
     // Vehicles occupy [s - length, s] along the lane.
     const free = (s: number) => taken.every((t) => s - length > t.s + SCENE_GAP || t.s - t.length > s + SCENE_GAP);
-    if (lane.kind !== 'lane') return base;
+    if (lane.kind !== 'lane') return null;
     // Nearest free spot to the building, metre by metre in both directions.
     for (let d = 0; d <= lane.length; d++) {
       for (const s of [clampToLane(lane, base.s + d, length), clampToLane(lane, base.s - d, length)]) {
@@ -346,6 +394,6 @@ export class Dispatcher {
         }
       }
     }
-    return base;
+    return null;
   }
 }

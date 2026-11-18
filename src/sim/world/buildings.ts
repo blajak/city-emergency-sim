@@ -5,6 +5,7 @@ import { type Vec2, add, distance, dot, lerp, normalize, rightOf, scale, sub, ve
 import { CROSSWALK_LENGTH, FLOOR_HEIGHT, GROUND_FLOOR_HEIGHT, STREET_CLEARANCE } from './constants';
 import { districtAt } from './districts';
 import { approachDistance } from './roadGeometry';
+import { buildLoop, loopLayout, planGate, stadiumIsland } from './carPark';
 import { RoadIndex } from './roadIndex';
 import type { RailPlan } from './rail';
 import type { Block, CityLayout, StationSite } from './roadNetwork';
@@ -231,6 +232,39 @@ export function placeBuildings(
     (Math.min(...network.nodes.map((n) => n.pos.x)) + Math.max(...network.nodes.map((n) => n.pos.x))) / 2,
     (Math.min(...network.nodes.map((n) => n.pos.z)) + Math.max(...network.nodes.map((n) => n.pos.z))) / 2,
   );
+
+  /**
+   * The stadium complex (v3 feature 2): one block with the car park's one-way loop round its
+   * edge and the stadium on the island in the middle (see `carPark.ts`). The gate is on the
+   * street nearest the map centre where it fits. False when the block can't take it.
+   */
+  const placeStadium = (block: Block, rule: SiteRule, anyDistrict: boolean): boolean => {
+    const mid = (id: EdgeId) => samplePolyline(network.edges[id].points, network.edges[id].length / 2).point;
+    const fronts = (['north', 'south', 'east', 'west'] as const)
+      .filter((k) => block.sides[k] !== undefined)
+      .sort((x, y) => distance(mid(block.sides[x]!), mapCenter) - distance(mid(block.sides[y]!), mapCenter));
+    for (const front of fronts) {
+      const site = blockSite(block, network, rng, front);
+      if (!site || !isFree(site.plot)) continue;
+      const loop = loopLayout(site.plot);
+      const island = loop ? stadiumIsland(loop, site.plot) : null;
+      if (!loop || !island) continue;
+      if (!anyDistrict && !rule.districts.includes(districtKind(island.center))) continue;
+      const gateS = planGate(layout, site.edgeId, site.plot);
+      if (gateS === null) continue;
+      const spec: BuildingSpec = { kind: 'stadium', width: island.halfW * 2, depth: island.halfD * 2, groundFloorHeight: rule.height, upperFloors: 0, roof: 'flat', facadeColor: rng.pick(rule.color) };
+      push(spec, island, island, network.edges[site.edgeId], site.s, site.side);
+      buildLoop(layout, site.edgeId, gateS, loop, buildings);
+      // The car park: the whole plot; address on the (now split) gate street; a pay booth in a front corner.
+      const at = blockSite(block, network, rng, front)!;
+      const booth: OBB = { center: obbLocalToWorld(site.plot, site.plot.halfW - 3, site.plot.halfD - 2.5), halfW: 2, halfD: 1.5, rotation: site.plot.rotation };
+      const boothSpec: BuildingSpec = { kind: 'car_park', width: 4, depth: 3, groundFloorHeight: 3, upperFloors: 0, roof: 'flat', facadeColor: 0xd9dde0 };
+      push(boothSpec, booth, site.plot, network.edges[at.edgeId], at.s, at.side, 'Stadium Car Park');
+      usedBlocks.add(block);
+      return true;
+    }
+    return false;
+  };
   for (const kind of SITE_ORDER) {
     const rule = SITE_RULES[kind];
     for (let n = 0; n < rule.count(cityScale); n++) {
@@ -247,6 +281,14 @@ export function placeBuildings(
         anyDistrict = true;
       }
       orderCandidates(candidates, rule.prefer, rng, mapCenter, districts);
+      // The stadium shares its block with the car park: the biggest blocks first (3 m steps,
+      // so the preferred location still decides between similar ones).
+      if (kind === 'stadium') {
+        const size = (b: Block) => Math.round(blockExtent(b) / 3);
+        candidates.sort((x, y) => size(y) - size(x));
+        for (const block of candidates) if (placeStadium(block, rule, anyDistrict)) break;
+        continue;
+      }
       for (const block of candidates) {
         const site = blockSite(block, network, rng);
         if (!site || !isFree(site.plot)) continue;
@@ -274,7 +316,7 @@ export function placeBuildings(
   // depot (garage + driveway for the utility vans) next to the power plant.
   const frontageSpots = (target: Vec2, limit = 400) => {
     const spots: { edge: RoadEdge; s: number; side: Side; d: number }[] = [];
-    for (const edge of network.edges.filter((e) => !e.yard)) {
+    for (const edge of network.edges.filter((e) => !e.yard && !e.carPark)) {
       for (let s = STREET_CLEARANCE + 12; s < edge.length - STREET_CLEARANCE - 12; s += 6) {
         for (const side of [1, -1] as const) spots.push({ edge, s, side, d: distance(frontagePoint(edge, s, side), target) });
       }
@@ -316,7 +358,7 @@ export function placeBuildings(
   // 4. Terraces along both sides of every street, styled by district.
   let petrolStations = 0;
   const maxPetrol = Math.max(1, Math.round(cityScale / 3));
-  for (const edge of network.edges.filter((e) => !e.yard)) {
+  for (const edge of network.edges.filter((e) => !e.yard && !e.carPark)) {
     for (const side of [1, -1] as const) {
       const end = edge.length - STREET_CLEARANCE - 1;
       let s = STREET_CLEARANCE + 1;
@@ -530,6 +572,15 @@ function blockSite(block: Block, network: RoadNetwork, rng: Rng, preferredFront?
   return { plot, edgeId: edge.id, s, side };
 }
 
+/** Smaller half extent of a block's largest set-back rectangle (as `blockSite` measures it). */
+function blockExtent(block: Block): number {
+  const [nw, ne, se, sw] = block.corners;
+  const center = blockCenter(block);
+  const east = normalize(lerp(sub(ne, nw), sub(se, sw), 0.5));
+  const along = (axis: Vec2) => Math.min(...block.corners.map((p) => Math.abs(dot(sub(p, center), axis))));
+  return Math.min(along(east), along(rightOf(east)));
+}
+
 /** Main structure at the back of a plot, `fw` × `fd` of its size. */
 function mainStructure(plot: OBB, fw: number, fd: number): OBB {
   const halfW = plot.halfW * fw;
@@ -541,17 +592,22 @@ function mainStructure(plot: OBB, fw: number, fd: number): OBB {
 // Delivery bays
 // ---------------------------------------------------------------------------
 
+/** Kerb kept free either side of the hospital's front for its ambulances, m. */
+export const STATION_KERB_HALF = 16;
+
 /** Bays keep this far from the railway corridors (a parked lorry must not stand on a level crossing), m. */
 const BAY_RAIL_CLEARANCE = 4;
 
 function assignBays(buildings: Building[], network: RoadNetwork, railPlan: RailPlan): void {
   const taken = new Map<string, { s: number; half: number }[]>();
   const keyOf = (edgeId: EdgeId, side: Side) => `${edgeId}:${side}`;
-  // Keep the curb in front of stations free for their units.
+  // Keep the curb in front of stations (and the hospital's ambulances) free for their units.
   for (const b of buildings) {
-    if (b.kind !== 'fire_station' && b.kind !== 'police_station') continue;
+    if (b.kind !== 'fire_station' && b.kind !== 'police_station' && b.kind !== 'hospital') continue;
     const key = keyOf(b.address.edgeId, b.address.side);
-    taken.set(key, [...(taken.get(key) ?? []), { s: b.address.s, half: b.footprint.halfW + 12 }]);
+    // (The hospital's front is its ambulance stand: three ambulances' length either side.)
+    const half = b.kind === 'hospital' ? STATION_KERB_HALF : b.footprint.halfW + 12;
+    taken.set(key, [...(taken.get(key) ?? []), { s: b.address.s, half }]);
   }
 
   for (const b of buildings) {

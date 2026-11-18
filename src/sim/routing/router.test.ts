@@ -4,9 +4,17 @@ import { type LaneGraph, type Segment, buildLaneGraph } from '../traffic/laneGra
 import { generateCity } from '../world/cityGenerator';
 import { type RoutePoint, Router } from './router';
 
-/** Plain Dijkstra over segment ends, used as the reference answer. */
+/** Lane a segment leads onto (itself for a lane). */
+const laneOf = (graph: LaneGraph, seg: Segment) => (seg.kind === 'lane' ? seg : (graph.segments[seg.toLane] as Extract<Segment, { kind: 'lane' }>));
+
+/**
+ * Plain Dijkstra over segment ends, used as the reference answer. Like the router, it keeps
+ * off the Dockside yard road, and off the stadium car park unless the route starts or ends there.
+ */
 function referenceTime(graph: LaneGraph, from: RoutePoint, to: RoutePoint): number {
   const start = graph.segments[from.segment];
+  const carParkOk = laneOf(graph, start).carPark || laneOf(graph, graph.segments[to.segment]).carPark;
+  const closed = (seg: Segment) => laneOf(graph, seg).yard || (!carParkOk && laneOf(graph, seg).carPark);
   const travel = (seg: Segment, len: number) => len / seg.speedLimit;
   if (from.segment === to.segment && to.s >= from.s - 0.5) return travel(start, Math.max(0, to.s - from.s));
   const dist = new Map<number, number>([[start.id, travel(start, start.length - from.s)]]);
@@ -20,6 +28,7 @@ function referenceTime(graph: LaneGraph, from: RoutePoint, to: RoutePoint): numb
     const seg = graph.segments[cur];
     for (const n of seg.kind === 'lane' ? seg.outConnectors : [seg.toLane]) {
       const next = graph.segments[n];
+      if (closed(next)) continue;
       if (n === to.segment) best = Math.min(best, dist.get(cur)! + travel(next, to.s));
       const t = dist.get(cur)! + travel(next, next.length);
       if (!done.has(n) && t < (dist.get(n) ?? Infinity)) dist.set(n, t);
@@ -34,9 +43,11 @@ describe('Router', () => {
       const graph = buildLaneGraph(generateCity(1337, { scale }).roads);
       const router = new Router(graph);
       const rng = createRng(11);
+      // (Not the yard road: only container lorries route there.)
+      const lanes = graph.lanes.filter((l) => !l.yard);
       for (let i = 0; i < 60; i++) {
-        const a = rng.pick(graph.lanes);
-        const b = rng.pick(graph.lanes);
+        const a = rng.pick(lanes);
+        const b = rng.pick(lanes);
         const from = { segment: a.id, s: rng.range(0, a.length) };
         const to = { segment: b.id, s: rng.range(0, b.length) };
         const route = router.find(from, to)!;

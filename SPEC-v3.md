@@ -323,9 +323,119 @@ everyone leaves at about the same time, and the car park's exits jam the streets
   (`parkingOffset`). Frontage, bays, lamps, bus planning and level crossings skip the aisles;
   civilians don't spawn on them. Render: asphalt, white bay lines, no sidewalks inside.
   Tests: a car park in every city with a stadium, aisles connected, turns, spaces.
+  *(Superseded the same day by M1b, the loop car park; the notes below describe the first
+  version with two through aisles.)*
+  **Status: built (2026-11-18), not committed.** `world/carPark.ts` (`planAisles`,
+  `buildAisles`, `spaceFronts`), `world/edgeSplit.ts` (`splitEdge` moving addresses already
+  placed, `connectNodes`; the yard road uses it too), `RoadEdge.carPark` / `Lane.carPark`.
+  The stadium only goes to a block with a fitting neighbour (`findCarPark`; seed 42 scale 4
+  had none for its first pick). Aisles at `c = (L + corner − t) / 3` from each end so the
+  three street lanes are about equal (≥ 5 m), one aisle in the middle if two don't fit.
+  Measured: 2 aisles and 32–40 spaces in all 10 tested cities (seeds 1337/7/42/99/5 at
+  scales 4 and 10). Spaces: every `SPACE_LENGTH` (6.5 m) from 3 m into the lane to 14 m before
+  its line. `crossingRouting.test.ts` no longer counts a wait at a crossing on the
+  destination's own lane (no route avoids it; the new layout put a scene just beyond one).
+  **Stress after M1** (12 min, "problems" per city at scale 10; scale 1: 0–2; 0 overlaps and
+  0 trains on occupied crossings in all 20 runs): DARK=0 1337: 3, 7: 12, 42: 11, 99: 2, 5: 3;
+  DARK=2 1337: 0, 7: 0, 42: 4, 99: 1, 5: 2. Seed 7's 12 are one queue on Elm St behind a lorry
+  turning right into Cedar Ave, whose level crossing (passenger tracks both ways + the
+  freight line, so often closed) is 17.7 m beyond the junction: `crossingStopsInJunction`
+  holds it while the crossing is or will be closed, and when it opens the lane beyond is
+  still full or the light turns red. It waited ~4 min and the queue cleared; 1 km from the
+  car park, the layout change only moved traffic there (the "lorry waits for an opening"
+  family under "Known" in CLAUDE.md). Seed 42's are single scattered waits.
+- **M1b Car park as a loop (user's drawing, 2026-11-18).** The user drew the car park as
+  a one-way loop round a grass island with one gate, kerb spaces along the outer edge and
+  round the island (parallel, cars slide in sideways as now). Pros and cons were discussed;
+  the user chose **no spaces round the island for now** (they are on the left of the
+  driving direction, and our cars only park on the right). Built:
+  - One gate: an unsignalised T in the middle of the street shared with the stadium (street
+    lanes either side ≥ 5 m, in practice ~25–35 m), a two-way access road to the middle of
+    the loop's front row (set `GATE_SETBACK` 6 m further in than the other sides, so 2–3
+    cars can queue on it), then the loop as **two one-way edges** gate → back middle → gate
+    (`RoadEdge.oneWay`, one centred lane like the yard road), rounded corners
+    (`CORNER_RADIUS` 5 m), `CAR_PARK_SPEED_LIMIT` 6 m/s.
+  - Turns: into the car park right **or left** (mid-block, room to wait), out of it right
+    only; at the gate in from the access road and out onto it, never round the loop again.
+  - Nobody else uses it: wandering cars don't turn in, `Router.find` only lets a route use
+    the car park when it starts or ends there, responders never.
+  - Spaces only where a whole space lies on a straight of the loop (`loopSpaceFronts`,
+    shared by the simulation and the renderer); filled from the end of the loop backwards.
+    20–26 spaces in the 10 tested cities. Render: grass plot (island and corners), the loop,
+    the spaces' strip and lines.
+  - Found while building: (1) with a 7 m access road the tail of a car queuing on it hung
+    back over the 3 m gate turn onto the loop, where the car behind could not see it
+    (overlap) → gate set back and turned wider (`GATE_CLEARANCE` 4.5); (2) two ordinary
+    lorries met on the 13 m bit of Mill Rd between the Dockside yard's T and the corner,
+    each with its tail in the junction behind and its nose waiting for the other's junction
+    (a 14 min gridlock that held up buses; the street layout change had just sent lorries
+    that way) → long vehicles (> 10 m) now route round lanes shorter than `SHORT_LANE`
+    (17 m) when they can (`Router.find(…, long)`).
+  - Measured (5 seeds, 200 cars): 0 overlaps; 55–65 % of the fans parked at kick-off,
+    nearly all at the whistle; car park empty 190–246 s after it.
+  - **Stress after M1b + M2 + M3** (no match in the stress run; 12 min, "problems" per city
+    at scale 10; scale 1: 0–2; 0 overlaps and 0 trains on occupied crossings in all 20 runs):
+    DARK=0 1337: 5, 7: 2, 42: 8, 99: 5, 5: 2; DARK=2 1337: 4, 7: 2, 42: 6, 99: 2, 5: 6.
+- **M1c Stadium on the car park island (user's idea, 2026-11-18).** The empty island in the
+  middle of the loop now holds the stadium: one block is the whole stadium complex, and the
+  car park has **one space each for the police car and the ambulance**. Decisions: the duty
+  spaces are the last two before the exit (ambulance first), fans get the rest; the stadium is
+  smaller than before, so it goes to the biggest free block and gets two tiers of stands
+  instead of three when it is small.
+  - Generator (`placeStadium` in `buildings.ts`): the stadium's candidate blocks are tried
+    biggest first (in 3 m steps, so the preferred location still decides between similar
+    ones); the gate goes on the street nearest the map centre where it fits (`planGate`).
+    `stadiumIsland` (`carPark.ts`): the island minus the lane half and 2 m pavement; at least
+    `MIN_STADIUM_HALF` 20 m each way, else the block is skipped. Every city from `?scale=4`
+    still gets a stadium (40 checked): 41–75 m a side (was 60–98 m), 19–24 fan spaces.
+    The neighbouring block is free for ordinary buildings again.
+  - Render: concrete up to the loop lane; `tiers` = 3 when the stadium is ≥ 60 m both ways,
+    else 2; the pitch, roof and its height follow the tiers.
+  - Duty: `MatchSystem.dutySpaces` (Map type → space) replaces `dutySpots`;
+    `Dispatcher.assignDuty(type, spot)` sends the fastest free unit to that exact space (no
+    kerb search). `Router.findTimed` lets a unit that starts in the car park drive out of it
+    (a released unit taking a queued call with sirens).
+  - Tests: `carPark.test.ts` (stadium inside the plot, > 3.5 m from the loop, both duty
+    spaces, ≥ 16 fan spaces), `match.test.ts` (both units stand in their own spaces),
+    `cityV2.test.ts` (the stadium is checked against streets only and may lie in the car
+    park plot). `crossingRouting.test.ts` lost its closed-crossing encounters with the new
+    layout (0 s without the forecast): it now sums two sets of calls (offsets 1 and 333).
+    A scan of 8 offsets showed the forecast does not always help: total 125 s at barriers
+    without it, 74 s with it, but two offsets were worse with it (3 → 18 s, 0 → 14 s); not
+    investigated yet (the crane's departure hold makes train times less predictable?).
+  - Measured (5 seeds, 250 cars, one match): 0 overlaps, car park empty 175–278 s after the
+    whistle. The duty units drive without sirens through normal traffic, ~2–2.5× the
+    router's free-flow time plus ~30 s round the loop: they park 75–290 s after the
+    announcement, so usually during the match rather than before kick-off.
+  - Stress after M1c found two old traffic gaps (the new layout only moved traffic onto
+    them), both fixed:
+    (1) seed 42 / seed 1337 DARK=2 (59 and 64 "still"): an articulated lorry turned into a
+    61 m street whose level crossing is 13 m beyond the junction; the crossing was open but
+    the queue beyond the tracks left no room, so it waited at the barrier with its trailer in
+    the junction, and the two dark junctions at both ends of the street locked in a cycle →
+    `crossingStopsInJunction` also refuses entry when there is no room beyond the tracks,
+    only when the tail would really be in the junction (the first, wider version starved
+    lorries at a busy crossing on Forge St, seed 42);
+    (2) seed 99 DARK=2 overlap: two fire engines started passing yielding cars from both ends
+    of a 68 m street (`oncomingOvertaker` only looked 30 m ahead) and met in the middle →
+    a unit already moving over now counts anywhere ahead on the stretch.
+  - **Stress after M1c + both fixes** (12 min, "problems" at scale 10; scale 1: 0–2; 0 overlaps
+    and 0 trains on occupied crossings in all 20 runs): DARK=0 1337: 5, 7: 3, 42: 13, 99: 3,
+    5: 6; DARK=2 1337: 3, 7: 6, 42: 18, 99: 2, 5: 2. Seed 42 is higher than before M1c (8 / 6):
+    single lorries, vans and buses waiting > 60 s at dark junctions in the south-east, spread
+    over several lanes, all clearing before the end of the run (no growing jam). Not traced
+    further yet; worth a look if it grows.
+  - **Status: built and verified (2026-11-18), not committed.** `npm test` 86 passed, build OK.
 - **M2 Ambulance.** `UnitType` `ambulance`, model `ambulance` (white box van, red stripe,
   blue beacons), station = the hospital (1 unit, 1–3 via the station card). No incident type
   uses it yet. Units list and station card show it; vehicle card describes it.
+  **Status: built (2026-11-18), not committed.** `UnitType`/`VehicleRole` `ambulance`, model
+  6.2 × 2.15 m (white box, red band, blue roof stripe, four beacons), `UNIT_SPECS.ambulance`
+  (station `hospital`), `SimulationOptions.ambulanceUnits` (default 1, only with a hospital,
+  i.e. from `?scale=3`). The kerb in front of the hospital is kept free like a station's
+  (`STATION_KERB_HALF` = 16 m: no delivery bay, no bus stop). Clicking the hospital opens
+  the station card ("Hospital · n / 3 ambulances"); the hospital is still an incident target.
+  Test `dispatch/ambulance.test.ts`.
 - **M3 Match.** `sim/events/matchSystem.ts`: phases `idle → arriving (180 s) → playing
   (120 s) → leaving (until the car park is empty) → idle`.
   - Fans: new civilian cars (`role: 'fan'` or a flag) that pull out from the kerb at
@@ -338,6 +448,22 @@ everyone leaves at about the same time, and the car park's exits jam the streets
     the car park is empty.
   - A score for fun: random goals during the match ("Home 2 : 1 Away"), a toast at the
     final whistle.
+  - **Status: built (2026-11-18), not committed.** `sim/events/matchSystem.ts`
+    (`Simulation.match`: `organise()`, `canOrganise()`, phases, `fans`, `spaces`,
+    `dutySpots`, `score`, `drainEvents()` for the UI; own RNG). Dispatcher: status `on_duty`,
+    `Unit.duty`, `assignDuty(type, spots)` / `releaseDuty(unit)`, kerb search split into
+    `kerbSpotNear` / `freeKerbSpot` (returns null instead of a taken spot). Ambulance colour
+    (user, same day): white or yellow at random when added (own RNG).
+    Found and fixed while building: (1) fans from all over town arrived too late — homes
+    now 300–700 m away, each fan sets off so it should arrive in its slot of the arrival
+    window (router free-flow time × `DRIVE_FACTOR` 2.6, measured); (2) a fan still pulling
+    into its space at the whistle was sent home half in the lane and waited to merge
+    with the car behind waiting for it (deadlock) — it now finishes parking first;
+    (3) both duty units got the same kerb spot because the stadium's address was on a
+    short split street lane — duty spots are now the middle of the longest lanes along
+    the stadium, and a full lane is skipped. Measured on 5 seeds: 55–68 % of the fans parked
+    at kick-off, 92–100 % at the whistle, car park empty 140–315 s after it; 0 overlaps.
+    Test `events/match.test.ts`.
 - **M4 UI, tests, polish.** Click the stadium for a **stadium card**: phase and countdown,
   fans parked x / spaces, score, units on duty, the **Organise a match** button (disabled
   while one is on). Tests: whole match lifecycle (nobody parks outside a reserved space, the
@@ -350,4 +476,4 @@ everyone leaves at about the same time, and the car park's exits jam the streets
   check the merge logic copes (no lock between a merging car and the lane queue).
 - Short street lanes between a car-park T and the corner junction (like the yard road).
 - Responders driving through the jam after the match (pre-emption, pulling over in a queue).
-- The duty units' kerb spot must not be where fans turn in or out.
+- ~~The duty units' kerb spot must not be where fans turn in or out.~~ (M1c: own spaces in the car park.)

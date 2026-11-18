@@ -9,6 +9,7 @@ import { BusSystem } from './transit/busSystem';
 import { LogisticsSystem } from './logistics/logisticsSystem';
 import { PowerSystem } from './power/powerSystem';
 import { ContainerSystem } from './freight/containerSystem';
+import { MatchSystem } from './events/matchSystem';
 import type { BuildingId, City } from './world/types';
 
 /** Fixed simulation step (20 ticks per second of sim time). */
@@ -40,6 +41,8 @@ export interface SimulationOptions {
   civilianCount?: number;
   fireUnits?: number;
   policeUnits?: number;
+  /** Ambulances at the hospital (cities with a hospital only; default 1). */
+  ambulanceUnits?: number;
 }
 
 /**
@@ -55,6 +58,7 @@ export class Simulation {
   readonly logistics: LogisticsSystem;
   readonly power: PowerSystem;
   readonly containers: ContainerSystem;
+  readonly match: MatchSystem;
   time = 0;
   timeScale: TimeScale = 1;
   /** Smoothed wall-clock cost of one simulation step, ms (for the debug overlay). */
@@ -75,10 +79,14 @@ export class Simulation {
     this.dispatcher = new Dispatcher(city, this.traffic, rng);
     for (let i = 0; i < (options.fireUnits ?? 1); i++) this.dispatcher.addUnit('fire');
     for (let i = 0; i < (options.policeUnits ?? 1); i++) this.dispatcher.addUnit('police');
+    if (city.buildings.some((b) => b.kind === 'hospital')) {
+      for (let i = 0; i < (options.ambulanceUnits ?? 1); i++) this.dispatcher.addUnit('ambulance');
+    }
     // Buses and lorries before civilians, so cars are not spawned on top of them.
     this.buses = new BusSystem(city, this.traffic, rng);
     this.logistics = new LogisticsSystem(city, this.traffic, rng, this.containers);
     this.power = new PowerSystem(city, this.traffic, this.signals, rng);
+    this.match = new MatchSystem(city, this.traffic, this.dispatcher);
     this.traffic.spawnCivilians(options.civilianCount ?? 20);
   }
 
@@ -138,5 +146,6 @@ export class Simulation {
     this.buses.update(this.time, events);
     this.logistics.update(this.time, events);
     this.power.update(this.time, events, this.dispatcher.incidents);
+    this.match.update(this.time, events);
   }
 }

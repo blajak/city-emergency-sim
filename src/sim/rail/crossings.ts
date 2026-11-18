@@ -47,7 +47,7 @@ export interface LevelCrossing {
 /** Finds every place a street crosses the railway and maps it onto lanes. */
 export function findLevelCrossings(network: RoadNetwork, graph: LaneGraph, tracks: readonly Track[]): LevelCrossing[] {
   const crossings: LevelCrossing[] = [];
-  for (const edge of network.edges.filter((e) => !e.yard)) {
+  for (const edge of network.edges.filter((e) => !e.yard && !e.carPark)) {
     const hits = tracks.flatMap((track) =>
       intersectPolylines(edge.points, track.points).map((hit) => ({ track, edgeS: hit.sa, trackS: hit.sb, point: hit.point })),
     );
