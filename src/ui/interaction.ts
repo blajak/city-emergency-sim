@@ -121,6 +121,18 @@ export class BuildingInteraction {
         consider(d, () => ({ kind: 'subject', subject: { kind: 'train', train } }));
       }
     }
+    // Gantry cranes: their legs and the girders (not the space under them, where trains and lorries stand).
+    for (const yard of sim.containers.yards) {
+      const yaw = Math.atan2(yard.uAxis.x, yard.uAxis.z);
+      const { crane, legs, halfSpan } = yard;
+      const pick = () => ({ kind: 'subject', subject: { kind: 'crane', yard } }) as TransitPick;
+      for (const w of legs) {
+        const p = sim.containers.toWorld(yard, crane.u, w);
+        consider(rayBoxDistance(ray, p.x, p.z, yaw, 0.8, halfSpan + 1.2, 16), pick);
+      }
+      const mid = sim.containers.toWorld(yard, crane.u, (legs[0] + legs[1]) / 2);
+      consider(rayBoxDistance(ray, mid.x, mid.z, yaw, Math.abs(legs[1] - legs[0]) / 2 + 2.5, 1.8, 17), pick);
+    }
     for (const box of this.stopBoxes) {
       const d = rayBoxDistance(ray, box.x, box.z, box.rotation, box.halfW, 1.2, 3);
       if (d !== null && d < bestDistance) {

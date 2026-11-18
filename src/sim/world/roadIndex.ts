@@ -9,8 +9,10 @@ const CELL_SIZE = 24;
 export class RoadIndex {
   private readonly grid = new SpatialGrid<[Vec2, Vec2]>(CELL_SIZE);
 
-  constructor(network: RoadNetwork) {
+  /** `withYard: false` leaves out the private yard road (it may cross the terminal's own plot). */
+  constructor(network: RoadNetwork, withYard = true) {
     for (const edge of network.edges) {
+      if (edge.yard && !withYard) continue;
       for (let i = 0; i < edge.points.length - 1; i++) {
         const segment: [Vec2, Vec2] = [edge.points[i], edge.points[i + 1]];
         this.grid.insert(segment, pointsBox(segment));

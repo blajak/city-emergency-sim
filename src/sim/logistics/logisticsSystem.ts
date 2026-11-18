@@ -1,5 +1,6 @@
 import { kerbPoint } from '../dispatch/curb';
-import type { Rng } from '../math/rng';
+import type { ContainerSystem, YardLorry } from '../freight/containerSystem';
+import { type Rng, createRng } from '../math/rng';
 import { distance } from '../math/vec2';
 import type { RoutePoint } from '../routing/router';
 import type { TrafficEvent, TrafficSystem } from '../traffic/trafficSystem';
@@ -17,8 +18,8 @@ import type { Building, City } from '../world/types';
  * customer's, and drive back; at home they go inside (leave the map).
  */
 
-export type LogisticsKind = 'truck' | 'van' | 'garbage';
-export type LogisticsStatus = 'loading' | 'delivering' | 'unloading' | 'returning' | 'collecting' | 'to_depot';
+export type LogisticsKind = 'truck' | 'van' | 'garbage' | 'container';
+export type LogisticsStatus = 'loading' | 'delivering' | 'unloading' | 'returning' | 'collecting' | 'to_depot' | 'at_yard' | 'to_yard';
 
 export interface LogisticsVehicle {
   id: number;
@@ -40,6 +41,10 @@ export interface LogisticsVehicle {
   /** Garbage trucks: bins on this round, and how many are emptied. */
   binsTotal: number;
   binsDone: number;
+  /** Container lorries: their place in the Dockside yard (container, spot), else null. */
+  lorry: YardLorry | null;
+  /** Container lorries: yard spot it is heading to or standing at. */
+  spot: number | null;
 }
 
 const LOADING: Record<'truck' | 'van', [number, number]> = { truck: [25, 45], van: [10, 20] };
@@ -61,17 +66,20 @@ const SPAWN_INTERVAL = 1;
 const TRUCK_COLORS = [0x2b5ca8, 0xc0392b, 0x2e7d5b, 0xe67e22, 0x6d4c41, 0x37474f, 0x8e44ad];
 const VAN_COLORS = [0xd32f2f, 0x1976d2, 0x388e3c, 0xf9a825, 0x6a1b9a, 0x00838f];
 const GARBAGE_COLOR = 0xef8a17;
+const CONTAINER_TRUCK_COLORS = [0x37474f, 0x1565c0, 0x2e7d32];
+/** Container lorries: warehouses, factories and big shops (bays long enough for a trailer). */
+const CONTAINER_CUSTOMERS: Building['kind'][] = ['warehouse', 'factory', 'supermarket', 'mall'];
 const TRUCK_CARGO = ['furniture', 'electronics', 'building materials', 'food', 'paper', 'machinery', 'textiles', 'beverages'];
 const VAN_CARGO = ['parcels', 'groceries', 'clothes', 'books', 'flowers', 'pharmacy goods', 'bakery supplies'];
 
-const MODEL: Record<LogisticsKind, VehicleModel> = { truck: 'truck', van: 'delivery_van', garbage: 'garbage_truck' };
-const ROLE: Record<LogisticsKind, VehicleRole> = { truck: 'truck', van: 'delivery', garbage: 'garbage' };
-const LABEL: Record<LogisticsKind, string> = { truck: 'Truck', van: 'Van', garbage: 'Garbage truck' };
+const MODEL: Record<LogisticsKind, VehicleModel> = { truck: 'truck', van: 'delivery_van', garbage: 'garbage_truck', container: 'truck' };
+const ROLE: Record<LogisticsKind, VehicleRole> = { truck: 'truck', van: 'delivery', garbage: 'garbage', container: 'truck' };
+const LABEL: Record<LogisticsKind, string> = { truck: 'Truck', van: 'Van', garbage: 'Garbage truck', container: 'Container lorry' };
 
 export class LogisticsSystem {
   readonly fleet: LogisticsVehicle[] = [];
   /** Running totals for the "city pulse" read-out. */
-  readonly stats = { deliveries: 0, binsEmptied: 0, garbageRounds: 0 };
+  readonly stats = { deliveries: 0, binsEmptied: 0, garbageRounds: 0, containerTrips: 0 };
   readonly targets: Record<LogisticsKind, number>;
   private readonly freightHub: Building | null;
   private readonly factories: Building[];
@@ -81,15 +89,19 @@ export class LogisticsSystem {
   private readonly wasteDepot: Building | null;
   private readonly industrial: Building[];
   private readonly frontage: Building[];
-  private readonly numbers: Record<LogisticsKind, number> = { truck: 1, van: 1, garbage: 1 };
+  private readonly numbers: Record<LogisticsKind, number> = { truck: 1, van: 1, garbage: 1, container: 1 };
   private nextSpawn = 0;
   private nextGarbage = FIRST_GARBAGE;
+  private readonly containerRng: Rng;
+  private readonly containerCustomers: Building[];
+  private readonly terminal: Building | null;
   private time = 0;
 
   constructor(
     private readonly city: City,
     private readonly traffic: TrafficSystem,
     private readonly rng: Rng,
+    private readonly containers: ContainerSystem | null = null,
   ) {
     const withBay = (kinds: Building['kind'][]) => city.buildings.filter((b) => b.bay && kinds.includes(b.kind));
     this.freightHub = withBay(['freight_hub'])[0] ?? null;
@@ -100,6 +112,10 @@ export class LogisticsSystem {
     this.wasteDepot = withBay(['waste_depot'])[0] ?? null;
     this.industrial = city.buildings.filter((b) => city.districts[b.district].kind === 'industrial' && !b.plot);
     this.frontage = city.buildings.filter((b) => !b.plot && b.kind !== 'fire_station' && b.kind !== 'police_station');
+    this.containerRng = createRng(city.seed ^ 0x2c0a7a1e);
+    this.containerCustomers = withBay(CONTAINER_CUSTOMERS);
+    this.terminal = city.buildings.find((b) => b.kind === 'freight_terminal') ?? null;
+    const yardReady = !!containers && containers.lorrySpots.length === 2 && !!this.terminal && this.containerCustomers.length > 0;
     const scale = city.scale;
     const hasTrucks = this.warehouses.length > 0 && (this.factories.length > 0 || this.freightHub !== null);
     this.targets = {
@@ -107,10 +123,13 @@ export class LogisticsSystem {
       truck: hasTrucks ? (scale < 2 ? 1 : Math.round(2 * scale)) : 0,
       van: this.warehouses.length > 0 && this.shops.length > 0 ? Math.max(2, Math.round(2 * scale)) : 0,
       garbage: this.wasteDepot ? Math.max(1, Math.round(scale * 0.3)) : 0,
+      // Two lorries circulate between Dockside and the city (one per yard spot).
+      container: yardReady ? 2 : 0,
     };
     // Start with lorries and vans already loading, so the city is busy from the first minute.
     for (let i = 0; i < this.targets.truck; i++) this.startJob('truck');
     for (let i = 0; i < this.targets.van; i++) this.startJob('van');
+    this.startContainerLorries();
   }
 
   of(vehicle: Vehicle): LogisticsVehicle | undefined {
@@ -131,6 +150,7 @@ export class LogisticsSystem {
     for (const item of [...this.fleet]) {
       const standing = item.status === 'loading' || item.status === 'unloading' || item.status === 'collecting';
       if (standing && time >= item.until && !this.traffic.isBeingOvertaken(item.vehicle)) this.moveOn(item);
+      if (item.kind === 'container') this.stepContainerLorry(item);
     }
     if (time >= this.nextSpawn) {
       this.nextSpawn = time + SPAWN_INTERVAL;
@@ -214,7 +234,8 @@ export class LogisticsSystem {
   }
 
   private spawn(kind: LogisticsKind, home: Building, at: RoutePoint, parked: boolean): LogisticsVehicle {
-    const color = kind === 'garbage' ? GARBAGE_COLOR : this.rng.pick(kind === 'truck' ? TRUCK_COLORS : VAN_COLORS);
+    // (Container lorries pick from their own RNG so the rest of the city's randomness is unchanged.)
+    const color = kind === 'garbage' ? GARBAGE_COLOR : kind === 'container' ? this.containerRng.pick(CONTAINER_TRUCK_COLORS) : this.rng.pick(kind === 'truck' ? TRUCK_COLORS : VAN_COLORS);
     const spec = { role: ROLE[kind], model: MODEL[kind], color, at };
     const vehicle = parked ? this.traffic.spawnParked(spec) : this.traffic.spawnDriving(spec);
     const item: LogisticsVehicle = {
@@ -231,6 +252,8 @@ export class LogisticsSystem {
       bin: null,
       binsTotal: 0,
       binsDone: 0,
+      lorry: null,
+      spot: null,
     };
     this.fleet.push(item);
     return item;
@@ -250,6 +273,7 @@ export class LogisticsSystem {
   /** Done standing: on to the customer, back home, or to the next bin. */
   private moveOn(item: LogisticsVehicle): void {
     const length = item.vehicle.length;
+    if (item.kind === 'container') return this.backToYard(item);
     if (item.kind === 'garbage') {
       // Unloaded at the depot: the truck goes inside.
       if (item.status === 'unloading') {
@@ -278,13 +302,17 @@ export class LogisticsSystem {
     switch (item.status) {
       case 'delivering':
         item.status = 'unloading';
-        item.until = this.time + this.rng.range(...UNLOADING[item.kind as 'truck' | 'van']);
+        item.until = item.kind === 'container' ? this.time + this.containerRng.range(...UNLOADING.truck) : this.time + this.rng.range(...UNLOADING[item.kind as 'truck' | 'van']);
         break;
       case 'returning':
         this.remove(item);
         break;
       case 'collecting':
         item.until = this.time + this.rng.range(...COLLECT_TIME);
+        break;
+      case 'to_yard':
+        item.status = 'at_yard';
+        item.lorry!.at = item.spot;
         break;
       case 'to_depot':
         // Unload at the recycling hall, then go inside.
@@ -294,6 +322,85 @@ export class LogisticsSystem {
       default:
         break;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Container lorries (Dockside yard ⇄ warehouses, factories, big shops)
+  // -------------------------------------------------------------------------
+
+  /** Two lorries start empty at the yard spots, the crane loads them first thing. */
+  private startContainerLorries(): void {
+    if (this.targets.container === 0) return;
+    this.containers!.lorrySpots.forEach((at, spot) => {
+      const item = this.spawn('container', this.terminal!, at, false);
+      item.vehicle.yardAccess = true;
+      item.lorry = this.containers!.registerLorry(item.vehicle);
+      item.cargo = 'empty chassis';
+      item.spot = spot;
+      // Hold it at the spot (an in-lane stop where it already stands).
+      item.status = this.send(item, at, true) ? 'to_yard' : 'at_yard';
+    });
+  }
+
+  private stepContainerLorry(item: LogisticsVehicle): void {
+    const lorry = item.lorry!;
+    if (item.status !== 'at_yard' || this.containers!.craneBusyWith(lorry)) return;
+    const spots = this.containers!.lorrySpots;
+    if (this.containers!.lorryLoaded(lorry)) {
+      if (this.time < item.until) return; // waiting for a free customer bay
+      const customer = this.pickContainerCustomer();
+      const length = item.vehicle.length;
+      if (customer && this.send(item, this.bayPoint(customer, length))) {
+        item.customer = customer;
+        item.cargo = `container (${lorry.container!.origin === 'outside' ? 'from outside' : 'from town'})`;
+        item.status = 'delivering';
+        lorry.at = null;
+        item.spot = null;
+      } else item.until = this.time + 5;
+      return;
+    }
+    // Waiting at the rear spot with the front one free: move up under the crane.
+    if (item.spot === 1 && !this.spotTaken(0, item)) {
+      if (this.send(item, spots[0], true)) {
+        lorry.at = null;
+        item.spot = 0;
+        item.status = 'to_yard';
+      }
+    }
+  }
+
+  /** Unloaded at the customer: the same container goes back to the yard, to the front spot if free. */
+  private backToYard(item: LogisticsVehicle): void {
+    this.containers!.lorryUnloaded(item.lorry!);
+    this.stats.deliveries++;
+    this.stats.containerTrips++;
+    item.customer = null;
+    item.cargo = 'container (returning)';
+    const spot = this.spotTaken(0, item) ? 1 : 0;
+    if (this.send(item, this.containers!.lorrySpots[spot], true)) {
+      item.spot = spot;
+      item.status = 'to_yard';
+    } else {
+      item.until = this.time + 5; // try again shortly
+    }
+  }
+
+  /** Another container lorry stands at, or is heading for, this yard spot. */
+  private spotTaken(spot: number, except: LogisticsVehicle): boolean {
+    return this.fleet.some((l) => l !== except && l.kind === 'container' && l.spot === spot);
+  }
+
+  /** A warehouse, factory or big shop whose bay is free, nearest of a few picks. */
+  private pickContainerCustomer(): Building | null {
+    const length = VEHICLE_DIMENSIONS.truck.length;
+    const free = this.containerCustomers.filter((b) => !this.bayBusy(b) && this.spotFree(this.bayPoint(b, length), length));
+    if (free.length === 0) return null;
+    let best = this.containerRng.pick(free);
+    for (let i = 1; i < 3; i++) {
+      const c = this.containerRng.pick(free);
+      if (distance(c.footprint.center, this.terminal!.footprint.center) < distance(best.footprint.center, this.terminal!.footprint.center)) best = c;
+    }
+    return best;
   }
 
   // -------------------------------------------------------------------------

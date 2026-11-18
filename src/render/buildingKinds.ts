@@ -78,8 +78,6 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addPool(builders, b);
     case 'stadium':
       return addStadium(builders, b);
-    case 'container_yard':
-      return addContainerYard(builders, b, rng);
     case 'waste_depot':
       return addWasteDepot(builders, b, rng);
     case 'power_plant':
@@ -94,7 +92,7 @@ export function addOtherBuilding(builders: Builders, b: Building, rng: Rng): voi
       return addTrainStation(builders, b);
     case 'freight_hub':
     case 'freight_terminal':
-      return addFreightYard(builders, b, rng);
+      return addFreightYard(builders, b);
     default:
       return;
   }
@@ -306,31 +304,6 @@ function addFactory(builders: Builders, b: Building, rng: Rng): void {
   const chimneyZ = oz - halfD * 0.4;
   const h = b.height + rng.range(12, 20);
   addLathe(builders.solid, frame, chimneyX, chimneyZ, [[1.3, 0], [1.0, h - 3], [1.0, h]], 10, (k) => (k === 0 ? color(0xa1543a) : color(0xd9d9d9)));
-}
-
-function addContainerYard(builders: Builders, b: Building, rng: Rng): void {
-  const frame = plotFrame(b);
-  const plot = b.plot!;
-  addFlatRect(builders.solid, frame, 0, 0, plot.halfW, plot.halfD, 0.06, color(0x9c978d));
-  const oz = footprintOffset(b);
-  box(builders.facade, frame, -plot.halfW + b.footprint.halfW + 1, oz, b.footprint.halfW, b.footprint.halfD, 0, b.height, color(0xd9d4c6), color(ROOF_GREY), { bayWidth: BAY_WIDTH, rowHeight: 3 });
-  const colors = [0xc0392b, 0x2b5ca8, 0x2e7d5b, 0xe67e22, 0x8e8e8e, 0x6d4c41, 0xf1c40f];
-  for (let x = -plot.halfW + 16; x < plot.halfW - 8; x += 7) {
-    for (let z = -plot.halfD + 6; z < plot.halfD - 10; z += 3) {
-      if (rng.chance(0.25)) continue;
-      const stack = rng.int(1, 3);
-      for (let k = 0; k < stack; k++) box(builders.solid, frame, x, z, 3.05, 1.22, k * 2.6, k * 2.6 + 2.5, color(rng.pick(colors)));
-    }
-  }
-  // Gantry crane over the stacks.
-  const cx = rng.range(-plot.halfW * 0.2, plot.halfW * 0.4);
-  const yellow = color(0xf2b134);
-  for (const sz of [-1, 1]) {
-    box(builders.solid, frame, cx - 6, sz * (plot.halfD - 3), 0.5, 0.5, 0, 14, yellow);
-    box(builders.solid, frame, cx + 6, sz * (plot.halfD - 3), 0.5, 0.5, 0, 14, yellow);
-  }
-  box(builders.solid, frame, cx - 6, 0, 0.6, plot.halfD - 2.5, 14, 15.2, yellow);
-  box(builders.solid, frame, cx + 6, 0, 0.6, plot.halfD - 2.5, 14, 15.2, yellow);
 }
 
 function addWasteDepot(builders: Builders, b: Building, rng: Rng): void {
@@ -704,7 +677,7 @@ function addTrainStation(builders: Builders, b: Building): void {
   sign(builders, frame, b.name === 'West Station' ? 'WEST STATION' : 'CENTRAL STATION', 11, b.height - 1.5, oz + halfD + 0.1);
 }
 
-function addFreightYard(builders: Builders, b: Building, rng: Rng): void {
+function addFreightYard(builders: Builders, b: Building): void {
   const frame = plotFrame(b);
   const plot = b.plot!;
   const oz = frontOffset(b);
@@ -713,17 +686,5 @@ function addFreightYard(builders: Builders, b: Building, rng: Rng): void {
   box(builders.solid, frame, -plot.halfW + halfW + 2, oz, halfW, halfD, 0, b.height, color(b.facadeColor), color(0x9ea4a8));
   box(builders.solid, frame, -plot.halfW + halfW + 2, oz, halfW + 0.04, halfD + 0.04, b.height - 2.2, b.height - 1.2, GLASS);
   sign(builders, frame, b.kind === 'freight_hub' ? 'FREIGHT HUB' : 'FREIGHT TERMINAL', 9, b.height - 3.2, oz + halfD + 0.1, -plot.halfW + halfW + 2);
-  // Container stacks at the back of the yard (the tracks run through the middle).
-  const colors = [0xc0392b, 0x2b5ca8, 0x2e7d5b, 0xe67e22, 0x8e8e8e, 0xf1c40f];
-  const zBack = -plot.halfD + 4;
-  for (let x = -plot.halfW + 6; x < plot.halfW - 6; x += 7) {
-    if (rng.chance(0.2)) continue;
-    const stack = rng.int(1, 3);
-    for (let k = 0; k < stack; k++) box(builders.solid, frame, x, zBack, 3.05, 1.22, k * 2.6, k * 2.6 + 2.5, color(rng.pick(colors)));
-  }
-  // Gantry crane spanning the yard across the tracks.
-  const yellow = color(0xf2b134);
-  const gx = plot.halfW * 0.35;
-  for (const z of [-plot.halfD + 1.5, oz - halfD - 1.5]) box(builders.solid, frame, gx, z, 0.5, 0.5, 0, 15, yellow);
-  box(builders.solid, frame, gx, (oz - halfD - plot.halfD) / 2, 0.6, (plot.halfD + oz - halfD) / 2, 15, 16.2, yellow);
+  // The gantry crane and the container stacks are simulated (render/freightView.ts).
 }

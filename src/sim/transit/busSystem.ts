@@ -30,6 +30,8 @@ const PULL_OUT_MARGIN = 120;
 const YARD_FILL = 0.5;
 const YARD_SPEED = 3;
 const YARD_ACCEL = 1;
+/** A vehicle driving along the kerb this far before the depot gate holds a bus pulling out, m. */
+const KERB_APPROACH = 20;
 /** No bus leaves the yard while a returning bus is this close to the depot, m. */
 const RETURNING_RANGE = 150;
 
@@ -132,6 +134,10 @@ export class BusSystem {
     this.depotPoint = bay ? kerbPoint(traffic.graph, city.roads, bay.edgeId, bay.side, bay.s, length) : null;
     for (const line of city.transit.lines) this.lines.push(this.prepareLine(line));
     this.yardLayout = this.depot && bay ? depotYard(this.depot) : null;
+    // A bus pulling out of the depot yard takes the kerb at the gate: nobody pulls over there
+    // (a car yielding to a responder drove along the kerb into it).
+    const at = this.depotPoint;
+    if (at) traffic.addKerbUsers(() => (this.yard.some((y) => y.pullOut && y.path) ? [{ segment: at.segment, from: at.s - length - 3, to: at.s + 3 }] : []));
     this.fillYard();
     this.placeInitialBuses();
   }
@@ -386,8 +392,9 @@ export class BusSystem {
   /** The kerb spot in front of the depot is taken. */
   private kerbBlocked(): boolean {
     const at = this.depotPoint!;
+    // Including a vehicle driving along the kerb towards the gate (pulled over for a responder).
     return this.traffic.vehicles.some(
-      (v) => v.segment === at.segment && v.s > at.s - BUS_LENGTH - 3 && v.s - v.length < at.s + 3,
+      (v) => v.segment === at.segment && v.s > at.s - BUS_LENGTH - 3 - (v.lateral > 0.5 ? KERB_APPROACH : 0) && v.s - v.length < at.s + 3,
     );
   }
 

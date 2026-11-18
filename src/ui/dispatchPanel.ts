@@ -198,6 +198,13 @@ export class DispatchPanel {
       tile('Blackouts', String(p.blackouts), p.blackouts === 1 ? 'district' : p.blackouts > 1 ? 'districts' : '', p.blackouts > 0),
       tile('Incidents resolved', String(p.incidentsResolved)),
       tile('Avg response', response, p.averageResponse === null ? '' : 'call → on scene'),
+      ...(p.containers
+        ? [
+            tile('Containers in', String(p.containers.arrived), 'by rail to Dockside'),
+            tile('Containers out', String(p.containers.shipped), 'by long-distance train'),
+            tile('Container trips', String(p.containers.lorryTrips), 'lorries into town'),
+          ]
+        : []),
     ].join('');
   }
 

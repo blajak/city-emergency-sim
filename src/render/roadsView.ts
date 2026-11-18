@@ -43,7 +43,7 @@ export function createRoadsView(city: City): THREE.Mesh {
     b.addGroundPolygon(circle(park.pond.center, park.pond.radius, 28), Y.pond, COLORS.pond);
   }
 
-  for (const edge of network.edges) {
+  for (const edge of network.edges.filter((e) => !e.yard)) {
     addRibbon(b, edge.points, STREET_CLEARANCE, Y.sidewalk, COLORS.sidewalk);
     addRibbon(b, edge.points, ROAD_WIDTH / 2, Y.asphalt, COLORS.asphalt);
   }
@@ -53,7 +53,13 @@ export function createRoadsView(city: City): THREE.Mesh {
     b.addGroundPolygon(circle(node.pos, (ROAD_WIDTH / 2) * 1.2, 24), Y.asphalt, COLORS.asphalt);
   }
 
-  for (const edge of network.edges) addMarkings(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
+  for (const edge of network.edges.filter((e) => !e.yard)) addMarkings(b, edge, network.nodes[edge.from], network.nodes[edge.to]);
+  // Private yard road through the Dockside terminal: one lane, no sidewalks, yellow edge lines.
+  for (const edge of network.edges.filter((e) => e.yard)) {
+    addRibbon(b, edge.points, LANE_WIDTH / 2 + 0.6, Y.asphalt, COLORS.asphalt);
+    const inner = subPolyline(edge.points, STREET_CLEARANCE + 1, edge.length - STREET_CLEARANCE - 1, 2);
+    for (const side of [-1, 1]) addRibbon(b, inner, 0.1, Y.marking, COLORS.bayMarking, side * (LANE_WIDTH / 2 + 0.2));
+  }
   for (const building of city.buildings) {
     if (building.bay) addBay(b, network.edges[building.bay.edgeId], building.bay);
   }

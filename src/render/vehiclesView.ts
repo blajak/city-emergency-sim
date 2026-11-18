@@ -10,7 +10,7 @@ const INITIAL_CAPACITY = 64;
 
 /** What the view needs from a vehicle (road traffic or a bus moving in the depot yard). */
 export type RenderVehicle = Pick<Vehicle, 'model' | 'color' | 'pose' | 'prevPose' | 'sirens'> &
-  Partial<Pick<Vehicle, 'trailer' | 'prevTrailer'>>;
+  Partial<Pick<Vehicle, 'trailer' | 'prevTrailer' | 'yardAccess'>>;
 
 /** Headlight glow and the patch of light in front of a vehicle at night. */
 const HEADLIGHT_GLOW = new THREE.Color(0xfff6dc);
@@ -193,7 +193,8 @@ export class VehiclesView {
     for (const v of input) {
       vehicles.push(v);
       if (v.trailer && v.prevTrailer) {
-        vehicles.push({ model: 'trailer', color: v.color, pose: v.trailer, prevPose: v.prevTrailer, sirens: false });
+        // Container lorries pull a skeletal chassis (the container is drawn by FreightView).
+        vehicles.push({ model: v.yardAccess ? 'chassis' : 'trailer', color: v.color, pose: v.trailer, prevPose: v.prevTrailer, sirens: false });
       }
     }
     const flash = Math.floor(time * FLASH_RATE * 2) % 2;
@@ -225,7 +226,7 @@ export class VehiclesView {
       batch.fixed.setMatrixAt(i, this.matrix);
       batch.paint.setColorAt(i, this.color.setHex(vehicle.color));
 
-      if (this.night && vehicle.model !== 'trailer') {
+      if (this.night && vehicle.model !== 'trailer' && vehicle.model !== 'chassis') {
         // Beam on the road ahead and two glowing headlamps at the front.
         const halfLength = (vehicle.model === 'truck' ? 3 : VEHICLE_DIMENSIONS[vehicle.model].length / 2);
         const halfWidth = VEHICLE_DIMENSIONS[vehicle.model].width / 2;

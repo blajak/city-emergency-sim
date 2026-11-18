@@ -66,4 +66,29 @@ describe('vehicle info card', () => {
     expect(sim.logistics.stats.deliveries).toBeGreaterThan(0);
     expect(sim.logistics.stats.binsEmptied).toBeGreaterThan(0);
   });
+
+  it('describes the gantry cranes: the move, the trains they work for and the stacks', () => {
+    const sim = new Simulation(city, { civilianCount: 0 });
+    const [hub, dockside] = sim.containers.yards;
+    const hubCrane = { kind: 'crane', yard: hub } as const;
+    expect(subjectAlive(sim, hubCrane)).toBe(true);
+    let info = describeSubject(sim, hubCrane);
+    expect(info).toMatchObject({ title: 'Freight Hub crane', kind: 'Gantry crane', status: 'Idle' });
+    expect(info.rows).toContainEqual(['Long-distance', 'Due in 1 min']);
+    expect(info.rows).toContainEqual(['Stacks', '2 containers (0 in, 2 out)']);
+
+    // The long-distance train arrives: the crane takes a container off it.
+    for (let i = 0; i < 20 * 200 && !hub.crane.task; i++) sim.step();
+    info = describeSubject(sim, hubCrane);
+    expect(info.status).toMatch(/^Moving a container: long-distance train → (shuttle|stack)$/);
+    expect(info.rows.find(([k]) => k === 'Long-distance')![1]).toMatch(/^Here, (about \d+ min|under a minute) of work left$/);
+    expect(info.rows.find(([k]) => k === 'Container')![1]).toMatch(/^#\d+, from outside$/);
+    const at = subjectPosition(sim, hubCrane);
+    expect(Math.hypot(at.x - hub.origin.x, at.z - hub.origin.z)).toBeLessThan(80);
+
+    // Dockside: the container lorries are counted.
+    const docksideInfo = describeSubject(sim, { kind: 'crane', yard: dockside });
+    expect(docksideInfo.title).toBe('Dockside Freight Terminal crane');
+    expect(docksideInfo.rows.find(([k]) => k === 'Lorries')![1]).toMatch(/^\d at the crane, \d in town$/);
+  });
 });

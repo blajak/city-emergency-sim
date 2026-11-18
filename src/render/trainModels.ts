@@ -60,9 +60,9 @@ export function buildCarModel(model: CarModel, length: number): THREE.BufferGeom
       break;
     }
     case 'container_wagon': {
+      // Flat with corner pins; containers are drawn separately (FreightView).
       box(0, 0, 1.4, hl - 0.2, 0.85, 1.25, c(0x3a3f45));
-      box(0, -hl / 2, 1.22, hl / 2 - 0.35, 1.25, 3.85, c(0xb03a2e), c(0x9e3328));
-      box(0, hl / 2, 1.22, hl / 2 - 0.35, 1.25, 3.85, c(0x2b5ca8), c(0x264f91));
+      for (const x of [-1.15, 1.15]) for (const z of [-hl + 0.4, hl - 0.4]) box(x, z, 0.12, 0.12, 1.25, 1.45, c(0xf3c623));
       break;
     }
   }

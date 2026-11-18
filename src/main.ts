@@ -3,6 +3,7 @@ import { createCityView } from './render/cityView';
 import { IncidentsView } from './render/incidentsView';
 import { DistrictLabelsView } from './render/labelsView';
 import { RailView } from './render/railView';
+import { FreightView } from './render/freightView';
 import { createSceneContext } from './render/sceneContext';
 import { SignalsView } from './render/signalsView';
 import { VehiclesView } from './render/vehiclesView';
@@ -41,6 +42,7 @@ const signalsView = new SignalsView(sim.signals, sim.traffic.graph);
 const incidentsView = new IncidentsView(city);
 const labelsView = new DistrictLabelsView(city.districts);
 const railView = new RailView(city, sim.rail);
+const freightView = new FreightView(sim.containers);
 
 const hud = requireElement('hud');
 const toast = new Toast(hud);
@@ -130,7 +132,7 @@ window.addEventListener('resize', updateViewInsets);
 
 const cityView = createCityView(city);
 applyLighting();
-ctx.scene.add(cityView.group, vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, railView.group, interaction.highlight.object);
+ctx.scene.add(cityView.group, vehiclesView.group, signalsView.group, incidentsView.group, labelsView.group, railView.group, freightView.group, interaction.highlight.object);
 
 const debug = params.has('debug') ? new DebugOverlay(hud, sim, ctx.renderer) : null;
 
@@ -141,6 +143,7 @@ function frame(dt: number): void {
   vehiclesView.update([...sim.traffic.vehicles, ...sim.buses.yard, ...sim.power.drivewayVans], alpha, sim.time);
   signalsView.update();
   railView.update(alpha, sim.time);
+  freightView.update(alpha);
   incidentsView.update(sim.dispatcher, sim.time);
   labelsView.update(ctx.camera, ctx.controls.target);
   panel.render();

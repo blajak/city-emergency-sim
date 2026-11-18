@@ -18,8 +18,8 @@ pass, and it works the scene before heading back.
 - **Procedural low-poly city.** ~270 streets in nine districts (old town, shopping,
   residential, industrial) with ~1300 buildings: tenements, apartment blocks, houses,
   shops with awnings, offices, a mall, supermarkets, a town hall, a hospital, schools,
-  a stadium, a sports hall, a pool, factories, warehouses, a container terminal, a waste
-  depot and a power plant. Parks, street lamps, trees, crosswalks, delivery lay-bys.
+  a stadium, a sports hall, a pool, factories, warehouses, a freight hub, a container
+  terminal, a waste depot and a power plant. Parks, street lamps, trees, crosswalks, delivery lay-bys.
   Every seed gives the same city (`?seed=42` for a different one).
 - **Traffic.** ~200 cars on random routes with realistic car-following (Intelligent Driver
   Model): smooth acceleration, safe gaps, slowing down for turns.
@@ -42,9 +42,18 @@ pass, and it works the scene before heading back.
   beacons light up the street and can be seen across the city.
 - **Railway.** Passenger trains run every 2½ minutes in each direction, coming out of a
   tunnel, stopping at West Station and Central Station and leaving through the tunnel on
-  the other side. A freight train shuttles between the freight hub and the Dockside
-  terminal. Level crossings close with flashing lights and barriers; cars wait, never
+  the other side. Level crossings close with flashing lights and barriers; cars wait, never
   stop on the tracks, and trains only pass a crossing that is closed and clear.
+- **Containers and gantry cranes.** Every 8 minutes a long-distance freight train comes out
+  of the east tunnel into the Freight Hub (a locomotive at each end, four container wagons).
+  The hub's gantry crane swaps containers between it and the local shuttle, through a buffer
+  stack when the shuttle is away; the shuttle takes them to the Dockside terminal, where a
+  second crane stacks them. Trains leave only when their crane is done. Containers keep the
+  colour of where they came from: cool colours for those from outside, warm ones for those
+  loaded in town.
+- **Container lorries.** Two lorries drive in on a private road through the Dockside yard,
+  wait under the crane (one behind the other) for a container, take it to a warehouse,
+  factory or big shop, unload there and bring it back; it then leaves the city by train.
 - **Buses.** Three lines with fixed routes, stops about every 300 m and a simple timetable.
   Stops have a bay where the kerb is free; in the old town buses stop in the lane and cars
   drive around them when the opposite lane is clear. Buses pull out of the depot yard,
@@ -60,12 +69,15 @@ pass, and it works the scene before heading back.
   random district until the crew repairs it. Press <kbd>N</kbd> for night.
 - **Vehicle cards and follow camera.** Click any vehicle or train to see who it is and where
   it is going ("Truck 3 · Factory, 84 Cedar Ave → Warehouse, 84 Abbey St · furniture",
-  "Garbage truck 1 · Bin 3 of 8", "Train 2 · Next stop: West Station"). **Follow** keeps the
+  "Garbage truck 1 · Bin 3 of 8", "Train 2 · Next stop: West Station"). Click a gantry crane
+  for the container it is moving, the trains it works for and its stacks. **Follow** keeps the
   camera on it; panning or <kbd>Esc</kbd> lets go.
-- **City pulse.** Deliveries made, bins emptied, trains on time, blackouts, incidents resolved
-  and the average response time, live in the panel.
+- **City pulse.** Deliveries made, bins emptied, trains on time, blackouts, incidents resolved,
+  the average response time and containers in / out / on lorries, live in the panel.
 - **Station management.** Click the fire or police station to add or remove units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
+
+![The Dockside gantry crane lowering a container onto a lorry in the yard road, with the container counts in the city pulse](docs/containers.jpg)
 
 ![Night with a blackout in Northfield; responding units' beacons light up the streets](docs/night.jpg)
 
@@ -83,7 +95,7 @@ pass, and it works the scene before heading back.
 | Pause / resume | <kbd>Space</kbd> |
 | Speed 1× / 2× | <kbd>1</kbd> / <kbd>2</kbd> |
 | Add or remove units | Click a station |
-| Vehicle card / follow camera | Click a vehicle or train, then **Follow** (<kbd>Esc</kbd> to stop) |
+| Vehicle card / follow camera | Click a vehicle, train or gantry crane, then **Follow** (<kbd>Esc</kbd> to stop) |
 | Day / night | <kbd>N</kbd> |
 
 URL parameters: `?seed=<number>` picks the city, `?scale=<1–10>` sets the size (default 10; 1 is a small town), `?cars=<number>` sets the traffic volume and `?debug` shows FPS, simulation cost and draw calls.
@@ -104,7 +116,8 @@ src/
     dispatch/          dispatcher, units, incidents, priorities, parking spots
     rail/              trains, level crossings and their closure forecast
     transit/           buses, timetable, depot yard
-    logistics/         lorries, delivery vans, garbage trucks
+    logistics/         lorries, delivery vans, garbage trucks, container lorries
+    freight/           containers, gantry cranes, the hub and Dockside yards
     power/             districts on/off, utility crews
     Simulation.ts      fixed-step loop tying it together
   render/              Three.js views: city, vehicles and beacons, signals, trains, fire/smoke/water
@@ -137,6 +150,15 @@ Some of the more interesting parts:
   expected wait at each crossing at the time they would reach it; the dispatcher uses the
   same times to pick the fastest unit. Every second, a unit on its way checks whether a
   crossing ahead is now expected to be closed and switches to a faster detour.
+- **Gantry cranes.** Each crane works in its yard's own frame (along the track, across it,
+  up) and does one move at a time: lift just high enough to clear the stacks, travel with
+  the gantry and trolley at once, lower, grab, and the same back. Its next move comes from a
+  short priority list (e.g. a long-distance train's containers for town onto the shuttle,
+  else into the stack). A train standing at a yard is held while the crane still has work
+  for it, and the crossing forecast includes that remaining work.
+- **Yard road.** The road through the Dockside yard is an ordinary part of the road network
+  (its own T-junctions, reservations, level-crossing rules), but only container lorries may
+  route over it, it is one way, and it only allows a right turn in and a right turn out.
 
 ## Getting started
 
@@ -162,7 +184,10 @@ headless and check every vehicle pair for overlap at every step:
 - railway: crossings never let a train meet a car, and the closure forecast matches the
   barriers; responders spend far less time at closed crossings than without it,
 - buses, lorries, garbage trucks and utility crews: collision-free, in and out of their yards,
-- vehicle cards and the city pulse numbers,
+- long-distance freight and containers: the train fits the hub clear of the street, cranes
+  finish before trains leave, every container is accounted for, nobody but container lorries
+  uses the yard road,
+- vehicle and crane cards and the city pulse numbers,
 - police: patrol hand-over rules, crimes, adding and removing units,
 - emergency driving: a stream of incidents with no collisions or stuck units; units cross
   red lights, civilians pull over, and response times stay low.

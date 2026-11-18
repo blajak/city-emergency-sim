@@ -42,6 +42,8 @@ export interface Lane extends SegmentBase {
   fromNode: NodeId;
   toNode: NodeId;
   outConnectors: SegmentId[];
+  /** On the private Dockside yard road (container lorries only). */
+  yard: boolean;
 }
 
 export interface Connector extends SegmentBase {
@@ -72,8 +74,9 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
   for (const edge of network.edges) {
     const start = approachDistance(network.nodes[edge.from]);
     const end = edge.length - approachDistance(network.nodes[edge.to]);
-    for (const forward of [true, false]) {
-      const lateral = (LANE_WIDTH / 2) * (forward ? 1 : -1);
+    // The yard road is one way (from → to), its single lane on the centre line.
+    for (const forward of edge.yard ? [true] : [true, false]) {
+      const lateral = edge.yard ? 0 : (LANE_WIDTH / 2) * (forward ? 1 : -1);
       const count = Math.max(2, Math.ceil((end - start) / 2));
       const points: Vec2[] = [];
       for (let i = 0; i <= count; i++) {
@@ -92,6 +95,7 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
         length: polylineLength(points),
         speedLimit: LANE_SPEED_LIMIT,
         outConnectors: [],
+        yard: !!edge.yard,
       };
       segments.push(lane);
       lanes.push(lane);
@@ -106,6 +110,8 @@ export function buildLaneGraph(network: RoadNetwork): LaneGraph {
       for (const to of outgoing) {
         if (from.edgeId === to.edgeId) continue; // no U-turns
         const connector = makeConnector(segments.length, node.id, from, to);
+        // Into and out of the yard only by turning right (no waiting across the street).
+        if ((from.yard || to.yard) && connector.turn !== 'right') continue;
         segments.push(connector);
         connectors.push(connector);
         atNode.push(connector);

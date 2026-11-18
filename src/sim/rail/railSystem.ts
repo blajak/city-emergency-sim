@@ -68,16 +68,21 @@ function longhaulCars(wagons: number): TrainCar[] {
 /** Seconds between long-distance freight trains. */
 const LONGHAUL_INTERVAL = 480;
 const LONGHAUL_FIRST = 60;
-/** Time standing in the hub while containers are swapped, s. */
-const LONGHAUL_DWELL = 120;
+/** Minimum stay in the hub; the train then waits until the crane is done (`departureHold`), s. */
+const LONGHAUL_DWELL = 20;
 /** Speed coming out of the tunnel, m/s. */
 const LONGHAUL_ENTRY_SPEED = 8;
 
 /** Hard braking when something blocks the line unexpectedly, m/s². */
 const EMERGENCY_DECEL = 2.5;
 const STATION_DWELL = 20;
-const FREIGHT_DWELL = 30;
+const FREIGHT_DWELL = 15;
 const DWELL: Record<TrainKind, number> = { passenger: STATION_DWELL, freight: FREIGHT_DWELL, longhaul: LONGHAUL_DWELL };
+/**
+ * Expected stay at a freight stop including the crane's work, for forecasting stops not
+ * reached yet (4–5 crane moves of 20–30 s), s.
+ */
+const EXPECTED_STAY: Record<TrainKind, number> = { passenger: STATION_DWELL, freight: 100, longhaul: 130 };
 /** Seconds between passenger trains in each direction. */
 const PASSENGER_INTERVAL = 150;
 /** Close a crossing when a train could be there within this many seconds. */
@@ -170,6 +175,11 @@ export class RailSystem {
   private readonly forecast = new Map<number, ClosureWindow[]>();
   /** Long-distance freight service on the hub siding (null: no siding, or no room for a train). */
   readonly longhaul: { track: Track; cars: TrainCar[]; length: number; wagons: number } | null;
+  /**
+   * Seconds a freight train standing at a yard still has to wait for the crane (0: it may
+   * leave once its minimum dwell is over). Set by the container system.
+   */
+  departureHold: ((train: Train) => number) | null = null;
 
   constructor(
     city: City,
@@ -383,7 +393,11 @@ export class RailSystem {
     if (train.dwell > 0) {
       train.dwell -= dt;
       train.v = 0;
-      if (train.dwell <= 0) this.depart(train);
+      if (train.dwell <= 0) {
+        // Still being loaded: keep standing (dwell stays positive while held).
+        if (this.hold(train) > 0) train.dwell = 1e-3;
+        else this.depart(train);
+      }
       return;
     }
     const perf = PERFORMANCE[train.kind];
@@ -440,6 +454,10 @@ export class RailSystem {
     }
   }
 
+  private hold(train: Train): number {
+    return train.kind === 'passenger' || !this.departureHold ? 0 : this.departureHold(train);
+  }
+
   private depart(train: Train): void {
     train.stoppedAt = null;
     // Shuttle: at an end of the line (no stops left), reverse towards the other end.
@@ -448,6 +466,16 @@ export class RailSystem {
     if (train.kind === 'passenger' || train.stops.length > 0) return;
     train.dir = train.dir === 1 ? -1 : 1;
     train.stops = train.kind === 'longhaul' ? [] : [train.dir === 1 ? train.track.length - BUFFER_GAP : BUFFER_GAP];
+  }
+
+  /**
+   * Seconds until the next long-distance freight train comes out of the tunnel: 0 while one
+   * is in the city, null without the service.
+   */
+  nextLonghaulIn(): number | null {
+    if (!this.longhaul) return null;
+    if (this.trains.some((t) => t.kind === 'longhaul')) return 0;
+    return Math.max(0, (this.nextDeparture.get(this.longhaul.track.id) ?? 0) - this.time);
   }
 
   /** Where the train stops next (station or freight terminal), or null when it is leaving the city. */
@@ -570,12 +598,14 @@ export class RailSystem {
   private outlooks(): (TrainOutlook & { trackId: number })[] {
     const list: (TrainOutlook & { trackId: number })[] = [];
     for (const train of this.trains) {
-      const base = { trackId: train.track.id, perf: PERFORMANCE[train.kind], length: train.length, dwell: DWELL[train.kind], v: train.v };
+      const base = { trackId: train.track.id, perf: PERFORMANCE[train.kind], length: train.length, dwell: EXPECTED_STAY[train.kind], v: train.v };
+      // Standing: the rest of the minimum dwell or the crane's remaining work, whichever is longer.
+      const wait = train.dwell > 0 ? Math.max(train.dwell, this.hold(train)) : 0;
       if (train.kind !== 'passenger' && train.dwell > 0 && train.stops.length === 0) {
         // Loading at an end of the line: it will reverse.
-        list.push(this.reversed(train.kind, base, this.head(train), train.dir, train.dwell));
+        list.push(this.reversed(train.kind, base, this.head(train), train.dir, wait));
       } else {
-        const now = { ...base, head: this.head(train), dir: train.dir, wait: Math.max(0, train.dwell), stops: train.stops };
+        const now = { ...base, head: this.head(train), dir: train.dir, wait, stops: train.stops };
         list.push(now);
         const end = train.stops[train.stops.length - 1];
         // Freight reverses at the end of its run: forecast the way back too.
@@ -587,7 +617,7 @@ export class RailSystem {
       if (track.kind === 'longhaul') {
         // The next long-distance train in, and back out after its stay in the hub.
         if (due <= this.time && this.trains.some((t) => t.track === track)) continue;
-        const base = { trackId, perf: PERFORMANCE.longhaul, length: this.longhaul!.length, dwell: LONGHAUL_DWELL };
+        const base = { trackId, perf: PERFORMANCE.longhaul, length: this.longhaul!.length, dwell: EXPECTED_STAY.longhaul };
         const end = track.length - BUFFER_GAP;
         const comingIn = { ...base, head: 0, dir: 1 as const, wait: Math.max(0, due - this.time), v: LONGHAUL_ENTRY_SPEED, stops: [end] };
         list.push(comingIn, this.wayBack('longhaul', comingIn, end));
@@ -636,7 +666,7 @@ export class RailSystem {
     const arrive = this.timeToCover({ ...now, stops: [] }, (end - now.head) * now.dir);
     // Slow down to the buffers rather than run through: approximate with a stop leg.
     const brake = now.perf.maxSpeed / now.perf.decel / 2;
-    return this.reversed(kind, now, end, now.dir, arrive + brake + DWELL[kind]);
+    return this.reversed(kind, now, end, now.dir, arrive + brake + EXPECTED_STAY[kind]);
   }
 
   /** Seconds until the head has moved `distance` metres, stopping at stations on the way. */

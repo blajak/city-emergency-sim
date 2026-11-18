@@ -1,4 +1,5 @@
 import type { Unit } from '../sim/dispatch/types';
+import type { Container, Spot, Yard } from '../sim/freight/containerSystem';
 import type { LogisticsVehicle } from '../sim/logistics/logisticsSystem';
 import type { Crew } from '../sim/power/powerSystem';
 import type { Train } from '../sim/rail/railSystem';
@@ -17,7 +18,8 @@ export type Subject =
   | { kind: 'vehicle'; vehicle: Vehicle }
   | { kind: 'crew'; crew: Crew }
   | { kind: 'bus'; bus: Bus }
-  | { kind: 'train'; train: Train };
+  | { kind: 'train'; train: Train }
+  | { kind: 'crane'; yard: Yard };
 
 export interface SubjectInfo {
   title: string;
@@ -49,6 +51,8 @@ export function subjectAlive(sim: Simulation, s: Subject): boolean {
       return sim.buses.buses.includes(s.bus);
     case 'train':
       return sim.rail.trains.includes(s.train);
+    case 'crane':
+      return true;
   }
 }
 
@@ -63,6 +67,8 @@ export function subjectPosition(sim: Simulation, s: Subject): { x: number; z: nu
       return s.bus.vehicle.pose;
     case 'train':
       return sim.rail.trainCentre(s.train);
+    case 'crane':
+      return sim.containers.toWorld(s.yard, s.yard.crane.u, (s.yard.legs[0] + s.yard.legs[1]) / 2);
   }
 }
 
@@ -82,6 +88,8 @@ export function describeSubject(sim: Simulation, s: Subject): SubjectInfo {
   switch (s.kind) {
     case 'train':
       return describeTrain(sim, s.train);
+    case 'crane':
+      return describeCrane(sim, s.yard);
     case 'crew':
       return describeCrew(sim, s.crew);
     case 'bus':
@@ -133,6 +141,8 @@ const LOGISTICS_STATUS: Record<LogisticsVehicle['status'], string> = {
   returning: 'Returning',
   collecting: 'Collecting waste',
   to_depot: 'Returning to the depot',
+  at_yard: 'At the Dockside crane',
+  to_yard: 'Driving to Dockside',
 };
 
 function describeLogistics(sim: Simulation, item: LogisticsVehicle): SubjectInfo {
@@ -154,7 +164,7 @@ function describeLogistics(sim: Simulation, item: LogisticsVehicle): SubjectInfo
   if (street && item.vehicle.maneuver === 'driving') rows.push(['On', street]);
   return {
     title: item.name,
-    kind: item.kind === 'truck' ? 'Articulated lorry' : item.kind === 'van' ? 'Delivery van' : 'Garbage truck',
+    kind: item.kind === 'truck' ? 'Articulated lorry' : item.kind === 'container' ? 'Container lorry' : item.kind === 'van' ? 'Delivery van' : 'Garbage truck',
     status,
     rows,
     color: item.vehicle.color,
@@ -202,3 +212,46 @@ const TRAIN_LOOK: Record<Train['kind'], { kind: string; color: number }> = {
   freight: { kind: 'Freight shuttle', color: 0x2e7d5b },
   longhaul: { kind: 'Long-distance freight', color: 0x37474f },
 };
+
+// ---------------------------------------------------------------------------
+// Gantry cranes
+// ---------------------------------------------------------------------------
+
+const minutes = (seconds: number) => (seconds < 60 ? 'under a minute' : `about ${Math.round(seconds / 60)} min`);
+const containerName = (c: Container) => `#${c.id}, ${c.origin === 'outside' ? 'from outside' : 'from town'}${c.outbound ? ', going out' : ''}`;
+
+function spotName(sim: Simulation, spot: Spot): string {
+  if (spot.kind === 'stack') return 'stack';
+  if (spot.kind === 'lorry') return sim.logistics.of(spot.lorry.vehicle)?.name ?? 'lorry';
+  return spot.train.kind === 'longhaul' ? 'long-distance train' : 'shuttle';
+}
+
+/** A yard's gantry crane: what it moves now, the trains it works for, the stacks. */
+function describeCrane(sim: Simulation, yard: Yard): SubjectInfo {
+  const { containers, rail } = sim;
+  const { crane } = yard;
+  const rows: [string, string][] = [];
+  const task = crane.task;
+  const status = task ? `Moving a container: ${spotName(sim, task.from)} → ${spotName(sim, task.to)}` : 'Idle';
+  if (task) rows.push(['Container', containerName(task.container)]);
+  const trainRow = (label: string, kind: 'freight' | 'longhaul', away: string) => {
+    const train = containers.dockedTrain(yard, kind);
+    if (!train) return rows.push([label, away]);
+    const left = containers.holdEstimate(train);
+    rows.push([label, left > 0 ? `Here, ${minutes(left)} of work left` : 'Here, ready to leave']);
+  };
+  if (yard.kind === 'hub') {
+    const due = rail.nextLonghaulIn();
+    trainRow('Long-distance', 'longhaul', due === null ? '—' : due === 0 ? 'In the city' : `Due in ${minutes(due).replace('about ', '')}`);
+  }
+  trainRow('Shuttle', 'freight', 'Away');
+  if (yard.kind === 'dockside' && containers.lorries.length > 0) {
+    const here = containers.lorries.filter((l) => l.at !== null).length;
+    rows.push(['Lorries', `${here} at the crane, ${containers.lorries.length - here} in town`]);
+  }
+  const stacked = yard.stacks.flatMap((s) => s.tiers);
+  const out = stacked.filter((c) => c.outbound).length;
+  rows.push(['Stacks', `${stacked.length} containers (${stacked.length - out} in, ${out} out)`]);
+  rows.push(['Moves', String(crane.moves)]);
+  return { title: `${yard.name} crane`, kind: 'Gantry crane', status, rows, color: 0xf2b134 };
+}

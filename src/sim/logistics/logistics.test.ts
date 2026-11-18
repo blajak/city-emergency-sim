@@ -15,7 +15,7 @@ describe('logistics', () => {
     const rng = createRng(8);
     const homes = city.buildings.filter((b) => b.kind === 'residential');
 
-    const finished = { truck: 0, van: 0, garbage: 0 };
+    const finished = { truck: 0, van: 0, garbage: 0, container: 0 };
     let unloadedAtBay = 0;
     let bins = 0;
     for (let step = 0; step < 10 * 60 * 20; step++) {

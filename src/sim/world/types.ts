@@ -29,6 +29,8 @@ export interface RoadEdge {
   name: string;
   from: NodeId;
   to: NodeId;
+  /** Private road through the Dockside terminal (container lorries only, one way from → to). */
+  yard?: boolean;
   /** Centre line from `from` to `to`. Straight roads have 2 points. */
   points: Vec2[];
   length: number;
@@ -67,7 +69,6 @@ export type BuildingKind =
   // industry and utilities
   | 'factory'
   | 'warehouse'
-  | 'container_yard'
   | 'waste_depot'
   | 'power_plant'
   | 'substation'

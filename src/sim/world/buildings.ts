@@ -66,7 +66,6 @@ type SiteKind =
   | 'pool'
   | 'supermarket'
   | 'factory'
-  | 'container_yard'
   | 'waste_depot'
   | 'bus_depot';
 
@@ -94,7 +93,6 @@ const SITE_RULES: Record<SiteKind, SiteRule> = {
   pool: { districts: ['residential'], count: (s) => (s >= 5 ? 1 : 0), prefer: 'random', main: [0.62, 0.4], height: 8, color: [0xe6f0f4] },
   supermarket: { districts: ['commercial', 'residential'], count: (s) => Math.round(s / 3), prefer: 'random', main: [0.55, 0.42], height: 7, color: [0xf0ece4, 0xe6e9ec] },
   factory: { districts: ['industrial'], count: (s) => Math.round(s * 0.7), prefer: 'random', main: [0.86, 0.58], height: 11, color: [0xb8b3a8, 0xa8b1b8, 0xb98a6e] },
-  container_yard: { districts: ['industrial'], count: (s) => (s >= 3 ? Math.max(1, Math.round(s / 5)) : 0), prefer: 'east_edge', main: [0.16, 0.16], height: 4, color: [0xd9d4c6] },
   waste_depot: { districts: ['industrial'], count: (s) => (s >= 2 ? 1 : 0), prefer: 'map_edge', main: [0.5, 0.4], height: 9, color: [0x8f9a8a] },
   // Close to the centre of the industrial area so buses reach their lines quickly.
   bus_depot: { districts: ['industrial'], count: () => 1, prefer: 'map_center', main: [0.8, 0.32], height: 8, color: [0xc8ccd0] },
@@ -112,7 +110,6 @@ const SITE_ORDER: SiteKind[] = [
   'sports_hall',
   'pool',
   'waste_depot',
-  'container_yard',
   'supermarket',
   'factory',
 ];
@@ -151,7 +148,7 @@ export function placeBuildings(
 ): Building[] {
   const { network, parks, stationSites } = layout;
   const buildings: Building[] = [];
-  const roads = new RoadIndex(network);
+  const roads = new RoadIndex(network, false);
   /** Points along every railway corridor with the corridor's half width. */
   const rail = new SpatialGrid<{ p: Vec2; halfWidth: number }>(BUILDING_CELL_SIZE);
   for (const corridor of railPlan.corridors) {
@@ -277,7 +274,7 @@ export function placeBuildings(
   // depot (garage + driveway for the utility vans) next to the power plant.
   const frontageSpots = (target: Vec2, limit = 400) => {
     const spots: { edge: RoadEdge; s: number; side: Side; d: number }[] = [];
-    for (const edge of network.edges) {
+    for (const edge of network.edges.filter((e) => !e.yard)) {
       for (let s = STREET_CLEARANCE + 12; s < edge.length - STREET_CLEARANCE - 12; s += 6) {
         for (const side of [1, -1] as const) spots.push({ edge, s, side, d: distance(frontagePoint(edge, s, side), target) });
       }
@@ -319,7 +316,7 @@ export function placeBuildings(
   // 4. Terraces along both sides of every street, styled by district.
   let petrolStations = 0;
   const maxPetrol = Math.max(1, Math.round(cityScale / 3));
-  for (const edge of network.edges) {
+  for (const edge of network.edges.filter((e) => !e.yard)) {
     for (const side of [1, -1] as const) {
       const end = edge.length - STREET_CLEARANCE - 1;
       let s = STREET_CLEARANCE + 1;

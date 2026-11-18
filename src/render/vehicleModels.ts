@@ -150,6 +150,16 @@ export function buildVehicleModel(model: VehicleModel, length: number, width: nu
       for (const sx of [-1, 1]) box(sx * (hw - 0.3), -hl - 0.01, 0.2, 0.02, 1.0, 1.15, TAILLIGHT);
       break;
     }
+    case 'chassis': {
+      // Container chassis: two side beams, cross members, a raised gooseneck at the front.
+      wheels(0.55, [-hl + 1.4, -hl + 2.7, -hl + 4]);
+      for (const sx of [-1, 1]) box(sx * 0.55, 0, 0.12, hl - 0.1, 0.8, 1.15, CHASSIS);
+      for (let z = -hl + 0.6; z < hl; z += 2.2) box(0, z, hw - 0.1, 0.1, 1.0, 1.3, CHASSIS);
+      box(0, hl - 1.6, 0.7, 1.5, 1.15, 1.3, CHASSIS);
+      box(0, hl - 0.15, hw - 0.1, 0.15, 0.9, 1.3, paint);
+      for (const sx of [-1, 1]) box(sx * (hw - 0.3), -hl - 0.01, 0.2, 0.02, 0.9, 1.05, TAILLIGHT);
+      break;
+    }
     case 'garbage_truck': {
       // Painted cab, green compactor body with a rear loading hopper.
       const cab = 2.2;

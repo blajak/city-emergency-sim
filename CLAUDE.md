@@ -30,7 +30,11 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   status note in SPEC-v3.md. The seed 99 DARK=0 stress regression is fixed (left-turn
   starvation of a right-turning lorry, plus three latent kerb/yield bugs; see SPEC-v3.md),
   and the hub is 20 m wider so the train is loco + 4 wagons + loco (79 m) again.
-  **Next: F2 (cranes + containers).**
+  **F2a** (containers, gantry cranes at the hub and Dockside, trains wait for the crane)
+  and **F2b** (private yard road through Dockside, two container lorries, `container_yard`
+  building removed) and **F3** (crane card, container counts in the city pulse, README +
+  docs/containers.jpg) are built; details and user decisions in SPEC-v3.md.
+  **Next:** pick the next v3 feature with the user (ideas below).
 - Other ideas discussed with the user for v3 (not chosen yet): ambulances + hospital,
   traffic accidents, a "city runs by itself" mode with random calls, a second fire /
   police station for big cities, spreading fires, weather, gradual day/night,
@@ -69,7 +73,11 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
   - `routing/router.ts` A* with heap + per-segment-pair cache.
   - `signals/`, `rail/` (`railSystem.ts` trains + crossing controller, `crossings.ts`),
     `dispatch/` (dispatcher, units, incidents, curb spots).
-  - `logistics/logisticsSystem.ts` lorries, delivery vans, garbage trucks (jobs, rounds).
+  - `logistics/logisticsSystem.ts` lorries, delivery vans, garbage trucks (jobs, rounds),
+    container lorries (Dockside yard ⇄ warehouses / factories / big shops).
+  - `freight/containerSystem.ts` containers (origin colour, `outbound`), the hub and Dockside
+    yards (stacks, one gantry crane each, own frame u/w), lorry spots; gates train departures
+    (`RailSystem.departureHold`). `world/yardRoad.ts` the private yard road (`RoadEdge.yard`).
   - `power/powerSystem.ts` districts on/off, dark junctions (`SignalSystem.setDark`), plant
     fires, utility crews with driveway moves (`traffic/offroad.ts`).
   - `testing/overlap.ts` shared collision check for tests (tractor and trailer are separate bodies).
@@ -114,7 +122,7 @@ Traffic safety took many iterations; stress tests found each of these:
   them one function. The freight shuttle starts at the hub with the terminal ahead and
   only reverses after reaching an end (no stops left).
 - Pulling over needs a free kerb beside the vehicle and 12 m ahead (`PULL_OVER_ROOM_AHEAD`),
-  including kerb used by driveway manoeuvres (`TrafficSystem.setKerbUsers`): a vehicle that
+  including kerb used by driveway manoeuvres (`TrafficSystem.addKerbUsers`; buses pulling out of the depot yard too): a vehicle that
   pulls over and stops behind a parked one blocks the responder behind it (deadlock with a
   lorry's tail in the junction). The "beside a responder keeps yielding" rule only holds
   a vehicle with a blocked kerb ahead when the responder is really side by side.
@@ -145,6 +153,21 @@ Traffic safety took many iterations; stress tests found each of these:
   over (`queuedAtLineAhead`): nobody passes there, so both waited for each other forever.
   Only in the lane-scan loop; the "beside a responder keeps yielding" loop must keep it
   (dropping it there made cars move back into the passing responder).
+- Dockside yard road: only vehicles with `yardAccess` may route over it (`Router.find(…,
+  yard)`); everything that picks lanes or edges (spawns, wandering, frontage, lamps,
+  crossings, bus planning, responders' `findTimed`) must skip it. Right turn in / right turn
+  out only: the street lane between a yard T and the corner junction is ~11 m, too short for
+  a lorry to wait on. The road is `YARD_ROAD_OFFSET` from the track so the level crossing on
+  the exit street lies on the lane beyond the T (crossings inside a junction are not seen).
+- A pulled-over vehicle keeps yielding while a passing responder's body is level with its own
+  along its heading (`overlapsAlong`, `PASSING_LEAD` ahead when the responder is moving):
+  the centre-distance test `alongside(-0.5)` let a van with a blocked kerb ahead move back
+  out into a police car passing its tail (seed 1337, F2b).
+- A bus pulling out of the depot yard is kerb use (`addKerbUsers`), and a vehicle driving
+  along the kerb towards the gate holds it (`KERB_APPROACH`): a car yielding to a responder
+  drove along the kerb into a bus coming out (seed 7, F2b).
+- Trains at a yard leave only when the crane has nothing more for them (`departureHold`);
+  `docked()` must not depend on `dwell > 0` (it is decremented before the hold is asked).
 - Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
   or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
   line for ~20 m of room beyond the junction (they always get through).

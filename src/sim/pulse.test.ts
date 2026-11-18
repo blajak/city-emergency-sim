@@ -14,6 +14,7 @@ describe('city pulse', () => {
       blackouts: 0,
       incidentsResolved: 0,
       averageResponse: null,
+      containers: { arrived: 0, shipped: 0, lorryTrips: 0 },
     });
 
     const house = city.buildings.find((b) => b.kind === 'house')!;
@@ -31,5 +32,14 @@ describe('city pulse', () => {
     expect(pulse.incidentsResolved).toBe(1);
     expect(pulse.averageResponse).toBeGreaterThan(0);
     expect(pulse.averageResponse).toBeLessThan(300);
+    // Containers: the shuttle brings some to Dockside, lorries take them into town.
+    expect(pulse.containers!.arrived).toBeGreaterThanOrEqual(2);
+    expect(pulse.containers!.shipped).toBeGreaterThanOrEqual(2);
+    expect(pulse.containers!.lorryTrips).toBeGreaterThanOrEqual(2);
+  });
+
+  it('has no container counts in a town without a freight line', () => {
+    const sim = new Simulation(generateCity(1337, { scale: 1 }), { civilianCount: 0 });
+    expect(sim.pulse().containers).toBeNull();
   });
 });

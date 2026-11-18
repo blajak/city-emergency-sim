@@ -60,7 +60,8 @@ describe('long-distance freight', () => {
     // First train at 60 s, the next one 8 minutes later; each stayed in the hub and left.
     expect(seen.size).toBe(2);
     expect(rail.stats.longhaulVisits).toBe(2);
-    expect(dwellSamples).toBeGreaterThan(20 * 200);
+    // Each stay lasts while the crane swaps containers (about 4 moves).
+    expect(dwellSamples).toBeGreaterThan(20 * 140);
     // Road traffic gets the crossing back while the train stands in the hub.
     expect(crossingOpenWhileDwelling).toBeGreaterThan(dwellSamples * 0.5);
     expect(unsafe).toBe(0);

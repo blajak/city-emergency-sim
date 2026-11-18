@@ -4,6 +4,7 @@ import { STREET_CLEARANCE } from './constants';
 import type { Block, CityLayout } from './roadNetwork';
 import { FREIGHT_MIN_COLS, railRow } from './roadNetwork';
 import type { Bounds } from './types';
+import type { YardRoad } from './yardRoad';
 
 /**
  * Railway layout:
@@ -47,6 +48,8 @@ export interface RailPlan {
   sites: RailSite[];
   /** Strips kept free of buildings, trees and lamps. */
   corridors: { points: Vec2[]; halfWidth: number }[];
+  /** Private road for container lorries through the Dockside terminal (set by `addYardRoad`). */
+  yardRoad: YardRoad | null;
 }
 
 /** Distance of each passenger track from the corridor centre line. */
@@ -106,7 +109,7 @@ export function planRail(layout: CityLayout, bounds: Bounds): RailPlan {
     sites.push({ kind: 'freight_hub', name: 'Freight Hub', block: hubBlock, front: 'north' });
     sites.push({ kind: 'freight_terminal', name: 'Dockside Freight Terminal', block: terminalBlock, front: 'east' });
   }
-  return { tracks, sites, corridors };
+  return { tracks, sites, corridors, yardRoad: null };
 }
 
 /**

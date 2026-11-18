@@ -43,9 +43,15 @@ interface CachedPath {
 export class Router {
   private readonly cache = new Map<string, CachedPath | null>();
   private readonly maxSpeed: number;
+  /** Yard road lanes and the connectors into them (container lorries only). */
+  private readonly yard = new Set<SegmentId>();
 
   constructor(private readonly graph: LaneGraph) {
     this.maxSpeed = Math.max(...graph.segments.map((s) => s.speedLimit));
+    for (const seg of graph.segments) {
+      const lane = seg.kind === 'lane' ? seg : graph.segments[seg.toLane];
+      if (lane.kind === 'lane' && lane.yard) this.yard.add(seg.id);
+    }
   }
 
   /** Forget cached paths (call when roads open or close). */
@@ -53,7 +59,8 @@ export class Router {
     this.cache.clear();
   }
 
-  find(from: RoutePoint, to: RoutePoint): Route | null {
+  /** `yard`: the route may use the private Dockside yard road. */
+  find(from: RoutePoint, to: RoutePoint, yard = false): Route | null {
     const start = this.graph.segments[from.segment];
     const target = this.graph.segments[to.segment];
     const travel = (seg: Segment, length: number) => length / seg.speedLimit;
@@ -63,10 +70,10 @@ export class Router {
       return { segments: [from.segment], time: travel(start, d), distance: d };
     }
 
-    const key = `${from.segment}>${to.segment}`;
+    const key = `${from.segment}>${to.segment}${yard ? 'y' : ''}`;
     let path = this.cache.get(key);
     if (path === undefined) {
-      path = this.search(start, target);
+      path = this.search(start, target, yard);
       this.cache.set(key, path);
     }
     if (!path) return null;
@@ -116,6 +123,7 @@ export class Router {
       if (base + heuristic(this.graph.segments[id]) >= best) break;
 
       for (const nextId of successors(this.graph.segments[id])) {
+        if (this.yard.has(nextId)) continue; // responders never cut through the yard
         const next = this.graph.segments[nextId];
         if (nextId === target.id) {
           const w = delay(nextId, startTime + base, 0, to.s);
@@ -167,7 +175,7 @@ export class Router {
   }
 
   /** A* from the end of `start` to the beginning of `target`. */
-  private search(start: Segment, target: Segment): CachedPath | null {
+  private search(start: Segment, target: Segment, yard: boolean): CachedPath | null {
     const goal = target.points[0];
     const heuristic = (seg: Segment) => distance(seg.points[seg.points.length - 1], goal) / this.maxSpeed;
 
@@ -186,6 +194,7 @@ export class Router {
       const base = cost.get(id)!;
 
       for (const nextId of successors(seg)) {
+        if (!yard && this.yard.has(nextId)) continue;
         if (nextId === target.id) return this.unwind(start.id, id, previous, base);
         const next = this.graph.segments[nextId];
         const c = base + next.length / next.speedLimit;

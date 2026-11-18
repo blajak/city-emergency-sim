@@ -111,7 +111,7 @@ export class PowerSystem {
           vehicle: null, move: null, pose, prevPose: { ...pose }, until: 0,
         });
       }
-      this.traffic.setKerbUsers(() => this.kerbUse());
+      this.traffic.addKerbUsers(() => this.kerbUse());
     }
   }
 

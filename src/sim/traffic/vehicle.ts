@@ -14,6 +14,8 @@ export type VehicleModel =
   /** Articulated lorry: `truck` is the tractor, drawn with a `trailer`. */
   | 'truck'
   | 'trailer'
+  /** Skeletal container chassis (drawn instead of the box trailer for container lorries). */
+  | 'chassis'
   | 'garbage_truck'
   | 'delivery_van'
   | 'utility_van';
@@ -46,6 +48,7 @@ export const VEHICLE_DIMENSIONS: Record<VehicleModel, VehicleDimensions> = {
   // Whole articulated lorry (tractor + trailer), as traffic sees it.
   truck: { length: 15.2, width: 2.55 },
   trailer: { length: 11.6, width: 2.55 },
+  chassis: { length: 11.6, width: 2.55 },
   garbage_truck: { length: 9.5, width: 2.5 },
   delivery_van: { length: 5.4, width: 2.05 },
   utility_van: { length: 5.4, width: 2.05 },
@@ -111,6 +114,8 @@ export interface Vehicle {
   yieldMode: 'stop' | 'hold';
   odometer: number;
 
+  /** May drive on the private Dockside yard road (container lorries). */
+  yardAccess: boolean;
   /** The destination is a stop in the lane (bus stop without a bay): stay in traffic there. */
   stopInLane: boolean;
   /** Standing at an in-lane stop (still `driving`, so traffic queues behind it). */

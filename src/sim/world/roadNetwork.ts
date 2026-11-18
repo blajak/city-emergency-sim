@@ -284,7 +284,7 @@ export function directionFromNode(edge: RoadEdge, nodeId: number): Vec2 {
  * Two roads meeting at angle θ stay overlapping (including sidewalks) up to
  * STREET_CLEARANCE / tan(θ/2) from the node. Right angles give STREET_CLEARANCE.
  */
-function nodeClearance(node: RoadNode, edges: readonly RoadEdge[]): number {
+export function nodeClearance(node: RoadNode, edges: readonly RoadEdge[]): number {
   const dirs = node.edges.map((id) => directionFromNode(edges[id], node.id));
   let clearance = STREET_CLEARANCE;
   for (let i = 0; i < dirs.length; i++) {

@@ -8,6 +8,7 @@ import { TrafficSystem } from './traffic/trafficSystem';
 import { BusSystem } from './transit/busSystem';
 import { LogisticsSystem } from './logistics/logisticsSystem';
 import { PowerSystem } from './power/powerSystem';
+import { ContainerSystem } from './freight/containerSystem';
 import type { BuildingId, City } from './world/types';
 
 /** Fixed simulation step (20 ticks per second of sim time). */
@@ -28,6 +29,11 @@ export interface CityPulse {
   incidentsResolved: number;
   /** Mean seconds from call to arrival on scene, or null before the first arrival. */
   averageResponse: number | null;
+  /**
+   * Containers brought to Dockside by rail, sent out of the city by long-distance trains, and
+   * container lorry trips into town; null in towns without a freight line.
+   */
+  containers: { arrived: number; shipped: number; lorryTrips: number } | null;
 }
 
 export interface SimulationOptions {
@@ -48,6 +54,7 @@ export class Simulation {
   readonly buses: BusSystem;
   readonly logistics: LogisticsSystem;
   readonly power: PowerSystem;
+  readonly containers: ContainerSystem;
   time = 0;
   timeScale: TimeScale = 1;
   /** Smoothed wall-clock cost of one simulation step, ms (for the debug overlay). */
@@ -64,12 +71,13 @@ export class Simulation {
     this.rail = new RailSystem(city, graph);
     this.traffic = new TrafficSystem(graph, rng, this.signals, this.rail);
     this.rail.attachTraffic(this.traffic.vehicles);
+    this.containers = new ContainerSystem(city, this.rail, graph);
     this.dispatcher = new Dispatcher(city, this.traffic, rng);
     for (let i = 0; i < (options.fireUnits ?? 1); i++) this.dispatcher.addUnit('fire');
     for (let i = 0; i < (options.policeUnits ?? 1); i++) this.dispatcher.addUnit('police');
     // Buses and lorries before civilians, so cars are not spawned on top of them.
     this.buses = new BusSystem(city, this.traffic, rng);
-    this.logistics = new LogisticsSystem(city, this.traffic, rng);
+    this.logistics = new LogisticsSystem(city, this.traffic, rng, this.containers);
     this.power = new PowerSystem(city, this.traffic, this.signals, rng);
     this.traffic.spawnCivilians(options.civilianCount ?? 20);
   }
@@ -87,6 +95,10 @@ export class Simulation {
       blackouts: this.power.districts.filter((d) => !d.on).length,
       incidentsResolved: resolved.length,
       averageResponse: reached.length > 0 ? reached.reduce((s, i) => s + i.arrivedAt! - i.reportedAt, 0) / reached.length : null,
+      containers:
+        this.containers.yards.length > 0
+          ? { arrived: this.containers.stats.delivered, shipped: this.containers.stats.shipped, lorryTrips: this.logistics.stats.containerTrips }
+          : null,
     };
   }
 
@@ -119,6 +131,7 @@ export class Simulation {
   private stepInner(): void {
     this.signals.step(SIM_DT);
     this.rail.step(SIM_DT);
+    this.containers.step(SIM_DT);
     const events = this.traffic.step(SIM_DT);
     this.time += SIM_DT;
     this.dispatcher.update(this.time, SIM_DT, events);

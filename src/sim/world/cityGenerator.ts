@@ -5,6 +5,7 @@ import { planDistricts } from './districts';
 import { planRail } from './rail';
 import { generateRoadLayout } from './roadNetwork';
 import { planTransit } from './transit';
+import { addYardRoad } from './yardRoad';
 import type { Bounds, City, RoadNetwork } from './types';
 
 const MAP_MARGIN = 45;
@@ -21,6 +22,7 @@ export function generateCity(seed: number, options: CityOptions = {}): City {
   const bounds = computeBounds(layout.network, MAP_MARGIN);
   const districts = planDistricts(rng, bounds, scale);
   const rail = planRail(layout, bounds);
+  rail.yardRoad = addYardRoad(layout, rail);
   const buildings = placeBuildings(rng, layout, districts, scale, rail);
   const transit = planTransit(layout, districts, buildings, rail);
   const id = (kind: string) => buildings.find((b) => b.kind === kind)?.id ?? null;

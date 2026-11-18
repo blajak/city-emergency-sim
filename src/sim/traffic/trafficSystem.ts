@@ -48,6 +48,8 @@ const PULL_OVER_LATERAL = 1.4;
  * (with a lorry's tail still in the junction, neither can move).
  */
 const PULL_OVER_ROOM_AHEAD = 12;
+/** A responder driving past a pulled-over vehicle counts as beside it this far before its body is level, m. */
+const PASSING_LEAD = 1.5;
 /** Units overtaking in opposite directions keep at least this far apart, m. */
 const ONCOMING_RANGE = 30;
 /** Last part of a lane where vehicles queue for the junction and are never passed. */
@@ -151,7 +153,10 @@ export class TrafficSystem {
   private byId = new Map<number, Vehicle>();
   private nextId = 0;
   private stepCount = 0;
-  private kerbUsers: () => readonly KerbUse[] = () => [];
+  private readonly kerbProviders: (() => readonly KerbUse[])[] = [];
+  private kerbUsers(): KerbUse[] {
+    return this.kerbProviders.flatMap((p) => p());
+  }
   readonly router: Router;
   private events: TrafficEvent[] = [];
 
@@ -186,7 +191,7 @@ export class TrafficSystem {
   // -------------------------------------------------------------------------
 
   spawnCivilians(count: number): void {
-    const lanes = this.graph.lanes.filter((l) => l.length > 25);
+    const lanes = this.graph.lanes.filter((l) => l.length > 25 && !l.yard);
     let spawned = 0;
     let attempts = 0;
     while (spawned < count && attempts++ < count * 50) {
@@ -294,9 +299,9 @@ export class TrafficSystem {
     if (vehicle.maneuver === 'parked' || vehicle.maneuver === 'arriving') vehicle.maneuver = 'waiting_to_merge';
   }
 
-  /** Kerb space used off the network (driveway manoeuvres): vehicles don't pull over there. */
-  setKerbUsers(users: () => readonly KerbUse[]): void {
-    this.kerbUsers = users;
+  /** Kerb space used off the network (driveway manoeuvres, buses leaving the depot yard): vehicles don't pull over there. */
+  addKerbUsers(users: () => readonly KerbUse[]): void {
+    this.kerbProviders.push(users);
   }
 
   /** A driveway manoeuvre uses the kerb of `segment` somewhere between `from` and `to`. */
@@ -315,7 +320,7 @@ export class TrafficSystem {
   private routeFrom(vehicle: Vehicle, destination: RoutePoint, crossingAware = false) {
     const from = { segment: vehicle.segment, s: vehicle.s };
     if (crossingAware && this.crossings.expectedWait) return this.router.findTimed(from, destination, this.crossingDelay);
-    return this.router.find(from, destination);
+    return this.router.find(from, destination, vehicle.yardAccess);
   }
 
   /** Expected seconds waiting at level crossings while driving a lane from `fromS` to `toS`. */
@@ -377,6 +382,7 @@ export class TrafficSystem {
       yieldingTo: null,
       yieldMode: 'stop',
       odometer: 0,
+      yardAccess: false,
       stopInLane: false,
       halted: false,
       overtaking: null,
@@ -829,7 +835,7 @@ export class TrafficSystem {
       // queued behind moves back out and drives on past the obstacle.
       for (const c of this.vehicles) {
         if (!this.canYield(c) || c.yieldingTo !== null || c.lateral <= 0.5 || !this.alongside(e, c)) continue;
-        if (this.roomToPullOver(c) || this.alongside(e, c, -0.5)) c.yieldingTo = e.id;
+        if (this.roomToPullOver(c) || this.alongside(e, c, -0.5) || this.overlapsAlong(e, c, e.v > 1 ? PASSING_LEAD : 0)) c.yieldingTo = e.id;
       }
     }
     // Next to a service vehicle that has stopped to park, stay pulled over but drive on.
@@ -868,6 +874,29 @@ export class TrafficSystem {
   /** How far right a yielding vehicle moves: wider ones go further, keeping the same left edge. */
   private pullOverLateral(v: Vehicle): number {
     return PULL_OVER_LATERAL + Math.max(0, (v.width - MAX_CIVILIAN_WIDTH) / 2);
+  }
+
+  /**
+   * Some part of `e`'s body is level with some part of `c`'s along `c`'s heading (whatever
+   * the gap between the centres): `c` moving back out would cut into it. A vehicle queued
+   * right behind `c` does not overlap.
+   */
+  private overlapsAlong(e: Vehicle, c: Vehicle, margin = 0): boolean {
+    const dx = Math.sin(c.pose.yaw);
+    const dz = Math.cos(c.pose.yaw);
+    const span = (v: Vehicle): [number, number] => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const b of vehicleBodies(v)) {
+        const d = (b.pose.x - c.pose.x) * dx + (b.pose.z - c.pose.z) * dz;
+        lo = Math.min(lo, d - b.length / 2);
+        hi = Math.max(hi, d + b.length / 2);
+      }
+      return [lo, hi];
+    };
+    const [e0, e1] = span(e);
+    const [c0, c1] = span(c);
+    return e0 < c1 + margin && c0 < e1 + margin;
   }
 
   /**
@@ -1269,7 +1298,8 @@ export class TrafficSystem {
   }
 
   private chooseConnector(lane: Lane): SegmentId {
-    const options = lane.outConnectors.map((id) => this.segment(id) as Connector);
+    // Wandering cars never turn into the private yard road.
+    const options = lane.outConnectors.map((id) => this.segment(id) as Connector).filter((c) => !(this.segment(c.toLane) as Lane).yard);
     const total = options.reduce((sum, c) => sum + TURN_WEIGHTS[c.turn], 0);
     let roll = this.rng.next() * total;
     for (const c of options) {

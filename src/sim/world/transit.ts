@@ -174,6 +174,7 @@ function findRoute(
     for (const edgeId of node.edges) {
       if (edgeId === state.via) continue; // no U-turns
       const edge = network.edges[edgeId];
+      if (edge.yard) continue; // container lorries only
       const turn = arriving && dot(arriving, directionFromNode(edge, node.id)) < Math.cos(Math.PI / 6) ? TURN_PENALTY : 0;
       const next = edge.from === node.id ? edge.to : edge.from;
       const cost = state.cost + edge.length + turn;

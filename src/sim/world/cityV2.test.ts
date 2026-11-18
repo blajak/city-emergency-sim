@@ -24,14 +24,14 @@ describe('10× city layout', () => {
     const kinds = new Set(city.buildings.map((b) => b.kind));
     const expected: BuildingKind[] = [
       'residential', 'apartment', 'house', 'office', 'shop', 'petrol_station', 'supermarket', 'mall', 'town_hall',
-      'school', 'hospital', 'sports_hall', 'pool', 'stadium', 'factory', 'warehouse', 'container_yard', 'waste_depot',
+      'school', 'hospital', 'sports_hall', 'pool', 'stadium', 'factory', 'warehouse', 'waste_depot',
       'power_plant', 'fire_station', 'police_station',
     ];
     for (const kind of expected) expect(kinds.has(kind), kind).toBe(true);
   });
 
   it('puts industry and the power plant in industrial districts', () => {
-    for (const b of city.buildings.filter((x) => ['power_plant', 'container_yard', 'waste_depot'].includes(x.kind))) {
+    for (const b of city.buildings.filter((x) => ['power_plant', 'waste_depot'].includes(x.kind))) {
       expect(city.districts[b.district].kind, b.kind).toBe('industrial');
     }
     const townHall = city.buildings.find((b) => b.kind === 'town_hall')!;
