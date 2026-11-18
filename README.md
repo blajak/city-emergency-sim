@@ -54,6 +54,12 @@ pass, and it works the scene before heading back.
 - **Container lorries.** Two lorries drive in on a private road through the Dockside yard,
   wait under the crane (one behind the other) for a container, take it to a warehouse,
   factory or big shop, unload there and bring it back; it then leaves the city by train.
+- **Match day.** Click the stadium and **Organise a match**: over three minutes fans drive
+  in from homes all over town to their reserved spaces on the one-way loop round the
+  stadium, while a police car and an ambulance from the hospital take their own spaces by the
+  exit (units on match duty take no other calls). Goals and the final whistle show up as
+  messages; at the whistle everyone leaves at once and the gate jams the streets around
+  until the car park is empty.
 - **Buses.** Three lines with fixed routes, stops about every 300 m and a simple timetable.
   Stops have a bay where the kerb is free; in the old town buses stop in the lane and cars
   drive around them when the opposite lane is clear. Buses pull out of the depot yard,
@@ -74,10 +80,13 @@ pass, and it works the scene before heading back.
   camera on it; panning or <kbd>Esc</kbd> lets go.
 - **City pulse.** Deliveries made, bins emptied, trains on time, blackouts, incidents resolved,
   the average response time and containers in / out / on lorries, live in the panel.
-- **Station management.** Click the fire or police station to add or remove units (1–3 each).
+- **Station management.** Click the fire or police station or the hospital to add or remove
+  units (1–3 each).
 - **Time controls.** Pause, 1× and 2× speed.
 
 ![The Dockside gantry crane lowering a container onto a lorry in the yard road, with the container counts in the city pulse](docs/containers.jpg)
+
+![Match day: fans parked round the stadium, the stadium card with the score and the police car and ambulance standing by](docs/match.jpg)
 
 ![Night with a blackout in Northfield; responding units' beacons light up the streets](docs/night.jpg)
 
@@ -94,7 +103,8 @@ pass, and it works the scene before heading back.
 | Cancel reporting | <kbd>Esc</kbd> |
 | Pause / resume | <kbd>Space</kbd> |
 | Speed 1× / 2× | <kbd>1</kbd> / <kbd>2</kbd> |
-| Add or remove units | Click a station |
+| Add or remove units | Click a station or the hospital |
+| Organise a match | Click the stadium, then **Organise a match** |
 | Vehicle card / follow camera | Click a vehicle, train or gantry crane, then **Follow** (<kbd>Esc</kbd> to stop) |
 | Day / night | <kbd>N</kbd> |
 
@@ -119,9 +129,10 @@ src/
     logistics/         lorries, delivery vans, garbage trucks, container lorries
     freight/           containers, gantry cranes, the hub and Dockside yards
     power/             districts on/off, utility crews
+    events/            match day at the stadium
     Simulation.ts      fixed-step loop tying it together
   render/              Three.js views: city, vehicles and beacons, signals, trains, fire/smoke/water
-  ui/                  dispatcher panel, cards (station, bus, power plant, vehicle), picking, toasts
+  ui/                  dispatcher panel, cards (station, bus, power plant, stadium, vehicle), picking, toasts
 ```
 
 Some of the more interesting parts:
@@ -131,7 +142,7 @@ Some of the more interesting parts:
   *connector*. Connectors whose paths come too close are marked as conflicting.
 - **Intersection reservations.** Before entering, the first car in line reserves its
   connector. It only gets it if no conflicting movement is reserved and its exit lane has
-  room, and it keeps the reservation until its tail has left the junction. Traffic lights decide
+  room (counting the cars still crossing into it), and it keeps the reservation until its tail has left the junction. Traffic lights decide
   *who may ask*; reservations guarantee nobody collides. Cars only enter on a reservation.
 - **Car-following.** Each driver looks ahead along its planned path for the nearest obstacle:
   a leading car, a stop line, a slower curve or its destination, and applies the
@@ -148,8 +159,9 @@ Some of the more interesting parts:
   forecast, so it is right to within a few seconds.
 - **Crossing-aware routing.** Responders route with an A* search whose cost includes the
   expected wait at each crossing at the time they would reach it; the dispatcher uses the
-  same times to pick the fastest unit. Every second, a unit on its way checks whether a
-  crossing ahead is now expected to be closed and switches to a faster detour.
+  same times to pick the fastest unit, allowing for arriving a little later than planned.
+  Every second, a unit on its way checks whether a crossing ahead is now expected to be
+  closed and switches to a faster detour.
 - **Gantry cranes.** Each crane works in its yard's own frame (along the track, across it,
   up) and does one move at a time: lift just high enough to clear the stacks, travel with
   the gantry and trolley at once, lower, grab, and the same back. Its next move comes from a
@@ -159,6 +171,12 @@ Some of the more interesting parts:
 - **Yard road.** The road through the Dockside yard is an ordinary part of the road network
   (its own T-junctions, reservations, level-crossing rules), but only container lorries may
   route over it, it is one way, and it only allows a right turn in and a right turn out.
+- **Match day.** The stadium stands on the island of its car park: one gate in the middle of
+  a street, a short two-way access road and a one-way loop with kerb spaces, all ordinary road
+  network that only routes starting or ending there may use. Each fan gets a space before
+  setting off from a home 300–700 m away, timed from the router's estimate to arrive during
+  the three minutes before kick-off; the last two spaces before the exit belong to the duty
+  units.
 
 ## Getting started
 
@@ -187,6 +205,8 @@ headless and check every vehicle pair for overlap at every step:
 - long-distance freight and containers: the train fits the hub clear of the street, cranes
   finish before trains leave, every container is accounted for, nobody but container lorries
   uses the yard road,
+- match day: fans park only in their reserved spaces, the car park never overfills, the duty
+  units stand by and take no other calls, everyone leaves and the units come back,
 - vehicle and crane cards and the city pulse numbers,
 - police: patrol hand-over rules, crimes, adding and removing units,
 - emergency driving: a stream of incidents with no collisions or stuck units; units cross

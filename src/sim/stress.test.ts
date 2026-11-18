@@ -11,18 +11,20 @@ declare const process: { env: Record<string, string | undefined> };
 
 /**
  * Long stress run, skipped in `npm test`. Run on demand, e.g.:
- *   STRESS=1 SEEDS=1337,7,42 SCALES=1,10 MINUTES=12 DARK=2 npx vitest run src/sim/stress.test.ts
+ *   STRESS=1 SEEDS=1337,7,42 SCALES=1,10 MINUTES=12 DARK=2 [MATCH=1] npx vitest run src/sim/stress.test.ts
  * Reports (does not fail on) vehicle overlaps — including buses in the depot yard
  * and utility vans on their driveway —, trains on occupied crossings, and
  * vehicles standing still too long (units/service > 60 s, cars > 120 s; DARK
  * marks lanes into unsignalised junctions). Incidents every 10–20 s, now and then
- * a fire at the power plant; DARK=n switches districts 0..n-1 off.
+ * a fire at the power plant; DARK=n switches districts 0..n-1 off. MATCH=1 organises
+ * a match at the stadium after a minute, and the next one a minute after each car park empties.
  */
 const env = process.env;
 const SEEDS = (env.SEEDS ?? '1337,7,42').split(',').map(Number);
 const SCALES = (env.SCALES ?? '1,10').split(',').map(Number);
 const MINUTES = Number(env.MINUTES ?? 10);
 const DARK = Number(env.DARK ?? 0);
+const MATCH = Boolean(Number(env.MATCH ?? 0));
 
 interface Part extends Body {
   label: string;
@@ -54,6 +56,8 @@ describe.skipIf(!env.STRESS)('stress', () => {
         const targets = city.buildings.filter((b) => b.kind !== 'fire_station' && b.kind !== 'police_station');
         const plant = city.power.plant;
         let nextIncident = 10;
+        let nextMatch = 60;
+        let lastEmpty = '';
         const still = new Map<Vehicle, number>();
         const problems: string[] = [];
         const seen = new Set<string>();
@@ -64,7 +68,13 @@ describe.skipIf(!env.STRESS)('stress', () => {
             sim.reportIncident(rng.chance(0.5) || target.id === plant ? 'fire' : 'crime', target.id);
             nextIncident += rng.range(10, 20);
           }
+          if (MATCH && sim.time >= nextMatch && sim.match.canOrganise()) sim.match.organise();
           sim.step();
+          for (const e of sim.match.drainEvents()) {
+            if (e.kind !== 'car_park_empty') continue;
+            nextMatch = sim.time + 60;
+            lastEmpty += ` ${(sim.time - sim.match.whistle).toFixed(0)}s`;
+          }
 
           const parts: Part[] = [];
           for (const v of sim.traffic.vehicles) for (const b of vehicleBodies(v)) parts.push({ ...b, label: describeVehicle(v), owner: v });
@@ -109,7 +119,9 @@ describe.skipIf(!env.STRESS)('stress', () => {
         console.log(
           `seed ${seed} scale ${scale} dark ${DARK}: incidents ${sim.dispatcher.incidents.length} ` +
             `resolved ${sim.dispatcher.incidents.filter((i) => i.status === 'resolved').length}, ` +
-            `lorries ${sim.logistics.count('truck')}, buses ${sim.buses.buses.length}, districts off ${off}, problems ${problems.length}`,
+            `lorries ${sim.logistics.count('truck')}, buses ${sim.buses.buses.length}, districts off ${off}, ` +
+            (MATCH ? `matches ${sim.match.stats.matches} (car park empty after whistle:${lastEmpty || ' -'}), ` : '') +
+            `problems ${problems.length}`,
         );
         for (const p of problems.slice(0, 25)) console.log(`  ${p}`);
       });

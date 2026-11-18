@@ -35,12 +35,13 @@ deployed by `.github/workflows/deploy.yml` on every push to `main` (tests + buil
     (`container_yard` building removed); two traffic fixes from the stress test; crane
     card, container counts in the city pulse, README + docs/containers.jpg.
   Details and every user decision are in SPEC-v3.md.
-  **In progress: Feature 2 "Match day at the stadium"** (plan 93ad13a). Built, not yet
-  committed: M1/M1b/M1c (stadium on the island of a one-way loop car park, one gate, duty
-  spaces for the police car and the ambulance), M2 (ambulance unit at the hospital), M3
-  (`sim/events/matchSystem.ts`: fans arrive over 3 min, 2 min match, everyone leaves at the
-  whistle). **Next: M4** (stadium card with "Organise a match", toasts, `MATCH=1` stress,
-  README). Details and every user decision in SPEC-v3.md.
+  **Feature 2 "Match day at the stadium"** (plan 93ad13a): M1–M3 in commit 74ee344
+  (stadium on the island of a one-way loop car park, one gate, duty spaces for the police car
+  and the ambulance; ambulance unit at the hospital; `sim/events/matchSystem.ts`: fans arrive
+  over 3 min, 2 min match, everyone leaves at the whistle). **M4 built, not committed:** stadium
+  card (`ui/stadiumCard.ts`, "Organise a match"), match toasts, `MATCH=1` in the stress test,
+  README + docs/match.jpg, and three fixes the match stress found (see the rules below).
+  Details and every user decision in SPEC-v3.md.
 - Other ideas discussed with the user for v3 (not chosen yet): ambulances for medical calls
   (the ambulance unit comes with Feature 2), traffic accidents with a tow truck, roadworks,
   a port with a container ship at Dockside, a "city runs by itself" mode with random calls, a second fire /
@@ -192,13 +193,35 @@ Traffic safety took many iterations; stress tests found each of these:
   each stopped with the tail in the other's junction (gridlock for minutes).
 - Trains at a yard leave only when the crane has nothing more for them (`departureHold`);
   `docked()` must not depend on `dwell > 0` (it is decremented before the hold is asked).
+- Exit room: a vehicle reserves a junction only if the exit lane has room for it after the
+  vehicles still crossing into that lane (`exitRoom`: holders of reservations for connectors
+  into it). Measuring only the cars already on the lane let a car follow another through the
+  car park gate and stop with its tail across the gate (seed 7, DARK=2, match).
+- A vehicle that waiting at the stop line would still have its tail on a level crossing
+  (`tailOnTracksAtLine`: short lane between tracks and line, long vehicles) crosses an open
+  crossing only holding its junction reservation, asks for it from the barrier
+  (`requestDistanceOn`) and gives it back when the barrier starts to close. A lorry stopped at
+  the line with its trailer on the crossing kept the barriers up (they need an empty crossing)
+  while the queue at the other barrier blocked its movement (seed 1337, three trains stopped).
+- A vehicle sent elsewhere while `arriving` and still in the lane (lateral ≤ 0.5) drives on
+  instead of becoming `waiting_to_merge` in mid-lane (a diverted fire engine still moved over
+  to pass: the car beside it stopped yielding and moved into it).
+- Responders' crossing-aware routing counts a closure starting within 3 s + 15 % of the ETA
+  after the free-flow arrival estimate (`ETA_SLACK`): real arrival is later, and a unit
+  planned to pass just before the barriers came down. Barriers still use `closures` as is.
+- Utility depot driveway: one van manoeuvres at a time (`drivewayFree`; a returning van waits
+  at the entry kerb), and none starts pulling out while another is at the gate or returning
+  within 120 m (its way out crosses that kerb spot).
+- Match day: after the whistle fans pull out in the order of their spaces from the exit, each
+  only once everyone parked nearer the exit has pulled out (`nobodyPullingOutAhead`): with a
+  random order a car waiting to merge watched the whole queue pass it (260 s, seed 5).
 - Known, accepted: the busy centre junction of seed 7/99 at scale 10 can hold a unit > 60 s
   or cars > 120 s under 300 cars (pre-existing); lorries sometimes wait > 60 s at a stop
   line for ~20 m of room beyond the junction (they always get through).
-- Known, open (F2 M1c): `crossingRouting.test.ts` sums two sets of calls because the gain from
-  the train forecast varies a lot with where the trains happen to be; in a scan of 8 call sets
-  two were worse with the forecast than without (the crane's departure hold?). Seed 42 at
-  scale 10 shows more single > 60 s waits at dark junctions since the stadium moved (13–18).
+- `crossingRouting.test.ts` sums four sets of calls and asks for a third less time at closed
+  barriers with the forecast (51 s vs 99 s after the ETA slack, F2 M4): the gain varies a lot
+  with where the trains happen to be. Known, open: seed 42 at scale 10 shows more single
+  > 60 s waits at dark junctions since the stadium moved (13–18).
 - Known, open (found in 7b, seed 7 scale 10 DARK=2): a lorry at the stop line can be
   starved by a stream of lorries on a long-conflicting movement (each reserves from
   further away), and a responder queued behind it waits too. Possible fix: give a vehicle

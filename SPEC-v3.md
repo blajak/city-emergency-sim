@@ -5,8 +5,8 @@ feature by feature. Each feature is planned with the user first, then built mile
 milestone with tests (and the stress test for anything touching traffic or rail).
 
 **Status (2026-11-18):** Feature 1 is done and deployed (F1 commit e1fdb4d, F2 + F3 commit
-37a0bd0, CI green). **Next: Feature 2, match day at the stadium** (planned, see below; start
-with M1).
+37a0bd0, CI green). Feature 2, match day at the stadium, is built (M1–M3 commit 74ee344, M4
+not committed yet).
 
 ## Feature 1: Long-distance freight and container cranes — done (F1–F3)
 
@@ -281,10 +281,9 @@ and the stacks are static decoration in `render/buildingKinds.ts` (hub/terminal 
   the shuttle is not there, and the shuttle later takes containers from the stack.
   Neither train waits for the other.
 
-## Feature 2: Match day at the stadium — planned, not started
+## Feature 2: Match day at the stadium — built (M1–M4)
 
-Agreed with the user on 2026-11-18 (plan only; to be built in the next session, starting
-with M1).
+Agreed with the user on 2026-11-18; built the same day (M1–M3 commit 74ee344, M4 below).
 
 ### Idea
 
@@ -469,6 +468,68 @@ everyone leaves at about the same time, and the car park's exits jam the streets
   while one is on). Tests: whole match lifecycle (nobody parks outside a reserved space, the
   car park never overfills, everyone leaves, units go and come back, collision-free).
   Stress test with a match (`MATCH=1` starts one in the stress run). README, screenshot.
+  **Status: built (2026-11-18), not committed.** `ui/stadiumCard.ts`: click the stadium or its
+  car park (from `?scale=4`) for the card: phase with countdown ("Fans arriving · kick-off in
+  2:51", "Playing · 63' · 0:36 left", "Full time · fans leaving"), the score (the last result
+  between matches), fans parked / spaces and on the way (after the whistle: still parked /
+  driving home), the duty units ("Driving there" / "Standing by" / "Waiting for a free unit",
+  `MatchSystem.waitingForUnits()`) and **Organise a match** (disabled while one is on). The
+  card keeps its buttons as the same elements and only redraws the text round them: rebuilt
+  every 250 ms, a click between press and release landed on a new element and was lost.
+  Toasts from `MatchSystem.drainEvents()` (`matchMessage`): announced, kick-off, every goal,
+  final whistle with the score, car park empty. Stress: `MATCH=1` organises a match after a
+  minute and the next one a minute after each car park empties; the summary line reports the
+  matches and how long each car park took to empty. The lifecycle test stays
+  `events/match.test.ts` (from M3: reserved spaces only, never overfull, duty units in their
+  spaces and off other calls, everyone leaves, units released, collision-free). README: feature,
+  controls, "How it works", tests, `docs/match.jpg`.
+  The `MATCH=1` stress runs found five problems, all fixed:
+  (1) seed 7 DARK=2: a car followed another through the car park gate onto the 22 m street lane
+  to the corner and stopped with its tail across the gate; a bus (long conflicts) waited for
+  it, the dark corner junction waited for room behind the bus — gridlock. `tryReserve` only
+  measured the room on the exit lane, not the cars still crossing into it: now
+  `TrafficSystem.exitRoom` subtracts every vehicle holding a reservation for a connector into
+  that lane (also for responders and `heldByLeftTurns`).
+  (2) seed 5: after the whistle the fan in the space nearest the exit waited ~260 s to merge
+  while the fans from further round the loop drove past it to the gate. Fans now pull out in
+  the order of their spaces from the exit (`leaveDelay`, within 20 s) and each only once
+  everyone parked nearer the exit has pulled out (`nobodyPullingOutAhead`); the car park then
+  empties at the rate the gate lets cars out onto the street.
+  (3) seed 1337 (the match only moved traffic there): an articulated lorry crossed the tracks
+  at the east crossing, stopped at the stop line ~8 m beyond them for a conflicting movement,
+  and its trailer kept the crossing occupied; the barriers wait for an empty crossing, three
+  trains stopped, and the queue behind the barrier on the other side blocked the very movement
+  the lorry waited for (a growing jam for 10 minutes). A vehicle whose tail would still be on
+  the tracks waiting at the line (`tailOnTracksAtLine`) now crosses an open crossing only
+  holding its junction reservation, asks for it from the barrier (`requestDistanceOn`), and
+  gives it back if the barrier starts to close while it waits there.
+  (4) seed 7 DARK=2, overlap: a fire engine reached its scene still moved over to pass
+  pulled-over cars, was diverted to a more urgent call while arriving and became
+  `waiting_to_merge` in mid-lane; a car that had been yielding to it stopped yielding and
+  moved back out into it. A vehicle sent elsewhere while arriving and still in the lane
+  (lateral ≤ `ARRIVING_IN_LANE` 0.5 m) now just drives on (`setRoute`).
+  (5) `crossingRouting.test.ts` (the "Known, open" item from M1c) failed after these changes
+  (forecast 43 s at closed barriers against 37 s without). Traced: the forecast was right, but
+  a police car planned to pass 2 s before the barriers came down (free-flow ETA) and waited
+  20 s. Responders' routing now counts a closure that starts within `ETA_SLACK` 3 s +
+  `ETA_SLACK_FACTOR` 15 % of the ETA after the estimated arrival (`crossingDelay`; the
+  barriers still close on the same `closures` forecast). Over four call sets: 51 s with the
+  forecast, 99 s without (one set waits ~12 s either way at a crossing no route avoids, one has
+  no closed crossing at all). The test now sums those four sets and asks for at least a third
+  less (it asked for 3× less on two sets, which only held by luck).
+  **Stress after M4** (12 min, "problems" at scale 10; scale 1: 0–1; 0 trains on occupied
+  crossings in all 30 runs): without a match DARK=0 1337: 16, 7: 5, 42: 26, 99: 4, 5: 2; DARK=2
+  1337: 3, 7: 1, 42: 7, 99: 2, 5: 4. With `MATCH=1` DARK=0 1337: 13, 7: 10, 42: 8, 99: 3, 5: 6;
+  DARK=2 1337: 6, 7: 24, 42: 7, 99: 5, 5: 1. Car park empty 114–328 s after the whistle (two
+  runs ended with the car park not yet empty, > 360 s). Seed 42 DARK=0 (26) is single lorry / van waits.
+  One overlap, traced and fixed (old, the match only moved the timing): seed 5 DARK=0 MATCH=1
+  t=502, two utility vans on the depot driveway, one leaving, one entering — nothing kept the
+  two manoeuvres apart, and a van entering the far spot loops round behind the near one. Then
+  the same place again: the van pulling out turned onto the kerb where the returning one
+  stopped before turning in. Now one van turns on the driveway at a time
+  (`PowerSystem.drivewayFree`; a returning van waits parked at the entry kerb,
+  `waitingAtGate`), and a van doesn't start pulling out while another is waiting at the gate or
+  returning within `GATE_APPROACH` 120 m of it (`crewComingIn`). Test in `power.test.ts`.
 
 ### Risks to watch
 

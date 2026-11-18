@@ -2,7 +2,7 @@ import { curbStop, kerbPoint } from '../dispatch/curb';
 import type { Incident } from '../dispatch/types';
 import { obbAxes, obbLocalToWorld, projectOnPolyline, samplePolyline } from '../math/geometry';
 import type { Rng } from '../math/rng';
-import { type Vec2, add, dot, rightOf, scale } from '../math/vec2';
+import { type Vec2, add, distance, dot, rightOf, scale } from '../math/vec2';
 import type { RoutePoint } from '../routing/router';
 import type { SignalSystem } from '../signals/signalSystem';
 import { type OffroadMove, offroadPose, startOffroad, stepOffroad } from '../traffic/offroad';
@@ -73,6 +73,8 @@ const REPAIR_TIME: [number, number] = [60, 90];
 const VAN = VEHICLE_DIMENSIONS.utility_van;
 /** A van turning between the kerb and the driveway is near the road for this much of its path, m. */
 const KERB_MANOEUVRE = 15;
+/** A van leaving the depot waits while another returning one is this close to the gate, m. */
+const GATE_APPROACH = 120;
 /** Driveway layout (plot frame, +z towards the street). */
 const TURN_RADIUS = 3.5;
 const SPOT_REAR = 1.5;
@@ -89,6 +91,8 @@ export class PowerSystem {
   private readonly plant: Building | null;
   private readonly districtOfNode: DistrictId[];
   private readonly fireCuts = new Set<number>();
+  /** Back at the depot, parked at the entry kerb until the driveway is free. */
+  private readonly waitingAtGate = new Set<Crew>();
   private time = 0;
   private layout: DrivewayLayout | null = null;
 
@@ -148,6 +152,11 @@ export class PowerSystem {
     return this.districts[district].on;
   }
 
+  /** Where a returning van stops before turning into the depot (world, kerb spot centre). */
+  get drivewayGate(): Vec2 {
+    return this.layout!.entryKerbPoint;
+  }
+
   /** Vans standing or moving on the depot driveway (not part of road traffic). */
   get drivewayVans(): DrivewayVan[] {
     return this.crews
@@ -188,7 +197,8 @@ export class PowerSystem {
     d.crew = crew;
     crew.district = district;
     if (crew.status === 'returning' && crew.vehicle) {
-      // Turn round on the way home.
+      // Turn round on the way home (or from the kerb at the gate).
+      this.waitingAtGate.delete(crew);
       crew.status = 'to_substation';
       if (!this.traffic.sendTo(crew.vehicle, this.substationPoint(district), false)) this.sendHome(crew);
     } else {
@@ -255,10 +265,36 @@ export class PowerSystem {
     return curbStop(this.traffic.graph, this.city.roads, building, VAN.length);
   }
 
+  /**
+   * Starts pulling out of the depot, or waits on its spot (status `leaving`, no move yet)
+   * while another van is on the driveway.
+   */
   private leaveDepot(crew: Crew): void {
     if (!this.layout) return;
     crew.status = 'leaving';
+    if (!this.drivewayFree(crew) || this.crewComingIn(crew)) return;
     crew.move = startOffroad(this.layout.exitPath(crew.spot), VAN.length, this.layout.exitHoldIndex);
+  }
+
+  /**
+   * No other van is turning on the driveway: one manoeuvre at a time. The paths cross (a van
+   * entering the far spot loops round behind the near one, and both use the gate): a van
+   * leaving one spot met a van entering the other (seed 5, match stress).
+   */
+  private drivewayFree(crew: Crew): boolean {
+    return !this.crews.some((c) => c !== crew && c.move !== null);
+  }
+
+  /**
+   * Another van is back at the gate or about to be: a van pulling out turns onto the kerb
+   * where the returning one stops before turning in (seed 5, match stress), so it waits.
+   */
+  private crewComingIn(crew: Crew): boolean {
+    const gate = this.layout?.entryKerbPoint;
+    if (!gate) return false;
+    return this.crews.some(
+      (c) => c !== crew && (this.waitingAtGate.has(c) || (c.status === 'returning' && c.vehicle !== null && distance(c.vehicle.pose, gate) < GATE_APPROACH)),
+    );
   }
 
   private sendHome(crew: Crew): void {
@@ -284,19 +320,28 @@ export class PowerSystem {
       crew.status = 'repairing';
       crew.until = this.time + this.rng.range(...REPAIR_TIME);
     } else if (crew.status === 'returning' && this.layout && crew.vehicle) {
-      // Off the road and onto the driveway.
-      crew.pose = { ...crew.vehicle.pose };
-      crew.prevPose = { ...crew.pose };
-      this.traffic.removeVehicle(crew.vehicle);
-      crew.vehicle = null;
-      crew.status = 'entering';
-      crew.move = startOffroad(this.layout.entryPath(crew.spot), VAN.length);
+      this.waitingAtGate.add(crew);
+      this.enterDepot(crew);
     }
+  }
+
+  /** Off the road and onto the driveway, unless another van is turning there (then it waits at the kerb). */
+  private enterDepot(crew: Crew): void {
+    if (!this.layout || !crew.vehicle || !this.drivewayFree(crew)) return;
+    this.waitingAtGate.delete(crew);
+    crew.pose = { ...crew.vehicle.pose };
+    crew.prevPose = { ...crew.pose };
+    this.traffic.removeVehicle(crew.vehicle);
+    crew.vehicle = null;
+    crew.status = 'entering';
+    crew.move = startOffroad(this.layout.entryPath(crew.spot), VAN.length);
   }
 
   private updateCrew(crew: Crew, dt: number): void {
     crew.prevPose = crew.pose;
     const layout = this.layout;
+    if (this.waitingAtGate.has(crew)) return this.enterDepot(crew);
+    if (crew.status === 'leaving' && !crew.move) return this.leaveDepot(crew);
     if (crew.move && layout && (crew.status === 'leaving' || crew.status === 'entering')) {
       const hold = crew.status === 'leaving' && this.kerbTaken(layout.exitKerb);
       const done = stepOffroad(crew.move, dt, hold);
@@ -345,6 +390,8 @@ interface DrivewayLayout {
   exitKerb: RoutePoint;
   /** Where a returning van stops before turning into the driveway. */
   entryKerb: RoutePoint;
+  /** The same in world coordinates (centre of the kerb spot). */
+  entryKerbPoint: Vec2;
 }
 
 /**
@@ -422,5 +469,6 @@ export function drivewayLayout(city: City, traffic: TrafficSystem, depot: Buildi
     },
     exitKerb,
     entryKerb,
+    entryKerbPoint: kerbLine(entryCentre),
   };
 }

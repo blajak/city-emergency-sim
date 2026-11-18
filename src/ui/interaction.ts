@@ -20,9 +20,14 @@ function isStation(building: Building): boolean {
   return building.kind === 'fire_station' || building.kind === 'police_station';
 }
 
+/** The stadium and the car park round it open the stadium card. */
+function isStadium(building: Building): boolean {
+  return building.kind === 'stadium' || building.kind === 'car_park';
+}
+
 /** Buildings that open a card when clicked without a report tool (the hospital: its ambulances; it can still be an incident target). */
 function isClickable(building: Building): boolean {
-  return isStation(building) || building.kind === 'power_plant' || building.kind === 'hospital';
+  return isStation(building) || building.kind === 'power_plant' || building.kind === 'hospital' || isStadium(building);
 }
 
 export interface InteractionCallbacks {
@@ -37,6 +42,8 @@ export interface InteractionCallbacks {
   onVehicle(subject: Subject, screen: { x: number; y: number }): void;
   /** Click on the power plant while no report tool is active. */
   onPowerPlant(screen: { x: number; y: number }): void;
+  /** Click on the stadium or its car park while no report tool is active. */
+  onStadium(screen: { x: number; y: number }): void;
   /** Click on anything else while no report tool is active. */
   onEmptyClick(): void;
 }
@@ -189,6 +196,7 @@ export class BuildingInteraction {
       else if (transit?.kind === 'stop') this.callbacks.onStop(transit.stop, screen);
       else if (transit?.kind === 'subject') this.callbacks.onVehicle(transit.subject, screen);
       else if (building?.kind === 'power_plant') this.callbacks.onPowerPlant(screen);
+      else if (building && isStadium(building) && this.sim.match.spaces.length > 0) this.callbacks.onStadium(screen);
       else if (building && (isStation(building) || (building.kind === 'hospital' && this.sim.dispatcher.unitsOfType('ambulance').length > 0)))
         this.callbacks.onStation(building, { x: e.clientX, y: e.clientY });
       else this.callbacks.onEmptyClick();

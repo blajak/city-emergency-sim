@@ -28,8 +28,15 @@ const FIRST_ARRIVAL = 35;
 const LAST_ARRIVAL = ARRIVAL_TIME - 15;
 /** Real driving time over the router's free-flow estimate (junctions, lights, traffic; measured ~2.6). */
 const DRIVE_FACTOR = 2.6;
-/** After the whistle, each fan pulls out within this many seconds. */
+/**
+ * After the whistle the fans are ready to pull out within this many seconds, the space nearest
+ * the exit first, and each only once everyone parked nearer the exit has pulled out: a car
+ * waiting to merge would otherwise watch the whole queue to the gate pass it (one waited
+ * 260 s, seed 5).
+ */
 const LEAVE_SPREAD = 20;
+/** Random extra delay per fan on top of its place in the order, s. */
+const LEAVE_JITTER = 2;
 /** Fans live this far from the stadium, m. */
 const MIN_HOME_DISTANCE = 300;
 const MAX_HOME_DISTANCE = 700;
@@ -129,6 +136,11 @@ export class MatchSystem {
     return this.spaces.length > 0 && this.homes.length > 0 && this.phase === 'idle';
   }
 
+  /** Duty unit types still waiting for a free unit. */
+  waitingForUnits(): readonly UnitType[] {
+    return this.pendingDuty;
+  }
+
   /** Fans parked right now. */
   parked(): number {
     return this.fans.filter((f) => f.status === 'parked').length;
@@ -188,7 +200,7 @@ export class MatchSystem {
         fan.status = 'parked';
         this.stats.fansParked++;
         // Pulled in just after the whistle: leaves with the others.
-        if (this.phase === 'leaving') fan.at = this.time + this.rng.range(0, LEAVE_SPREAD);
+        if (this.phase === 'leaving') fan.at = this.time + this.leaveDelay(fan);
       } else if (event.kind === 'halted' && fan.status === 'leaving') {
         this.remove(fan); // home
       }
@@ -207,7 +219,7 @@ export class MatchSystem {
     for (const fan of [...this.fans]) {
       if (time < fan.at) continue;
       if (fan.status === 'waiting') this.setOff(fan);
-      else if (fan.status === 'parked' && this.phase === 'leaving') this.goHome(fan);
+      else if (fan.status === 'parked' && this.phase === 'leaving' && this.nobodyPullingOutAhead(fan)) this.goHome(fan);
     }
 
     // Once a second: goals, and units for the stand-by still missing.
@@ -264,9 +276,21 @@ export class MatchSystem {
       // Still on the way: straight home, unless already pulling into its space (sent off half
       // in the lane it would wait to merge with the car behind waiting for it).
       else if (fan.status === 'driving_in' && fan.vehicle?.maneuver !== 'arriving') this.goHome(fan);
-      else fan.at = this.time + this.rng.range(0, LEAVE_SPREAD);
+      else fan.at = this.time + this.leaveDelay(fan);
     }
     this.pendingDuty = [];
+  }
+
+  /** Every fan parked nearer the exit has pulled out and joined the traffic on the loop. */
+  private nobodyPullingOutAhead(fan: Fan): boolean {
+    return !this.fans.some(
+      (o) => o.space < fan.space && (o.status === 'parked' || (o.status === 'leaving' && o.vehicle !== null && o.vehicle.maneuver !== 'driving')),
+    );
+  }
+
+  /** Seconds after the whistle a parked fan pulls out: in the order of the spaces from the exit. */
+  private leaveDelay(fan: Fan): number {
+    return (fan.space / this.spaces.length) * LEAVE_SPREAD + this.rng.range(0, LEAVE_JITTER);
   }
 
   /** Car park empty: the duty units go back (fans still driving home are left to arrive). */

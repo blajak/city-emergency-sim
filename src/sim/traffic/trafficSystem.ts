@@ -27,6 +27,11 @@ const MAX_BRAKING = 9;
 const EXIT_SPACE_MARGIN = 3;
 /** Stop this far before the stop line. */
 const STOP_LINE_MARGIN = 0.5;
+/** Uncertainty of a responder's arrival time at a level crossing: seconds plus a share of the ETA. */
+const ETA_SLACK = 3;
+const ETA_SLACK_FACTOR = 0.15;
+/** An arriving vehicle no further towards the kerb than this (m) is still in the lane. */
+const ARRIVING_IN_LANE = 0.5;
 const MIN_SPAWN_SPACING = 14;
 /** Oncoming vehicles closer than this to the stop line make left-turners wait. */
 const YIELD_DISTANCE = 30;
@@ -280,6 +285,10 @@ export class TrafficSystem {
     if (onLane && vehicle.reservation !== null && vehicle.reservation !== vehicle.plan[0]) {
       this.cancelReservation(vehicle);
     }
+    // Still in the lane while arriving (a unit diverted as it reached a scene, still moved over
+    // to pass pulled-over cars): drive on from there. Waiting to merge in mid-lane, a car that
+    // had been yielding to it stopped yielding and moved back out into it (seed 7, DARK=2).
+    if (vehicle.maneuver === 'arriving' && vehicle.lateral <= ARRIVING_IN_LANE) vehicle.maneuver = 'driving';
     if (vehicle.maneuver === 'parked' || vehicle.maneuver === 'arriving') vehicle.maneuver = 'waiting_to_merge';
   }
 
@@ -331,7 +340,17 @@ export class TrafficSystem {
     let wait = 0;
     for (const lc of forecast.crossingsOn(segmentId)) {
       if (lc.stopS < fromS || lc.stopS >= toS) continue;
-      wait += forecast.expectedWait(lc, entryTime + (lc.stopS - fromS) / seg.speedLimit + wait);
+      const eta = entryTime + (lc.stopS - fromS) / seg.speedLimit + wait;
+      let w = forecast.expectedWait(lc, eta);
+      // The estimate is free-flow driving, real arrival comes later: a closure starting
+      // soon after the estimate is likely met (a police car planned to pass 2 s before the
+      // barriers came down and waited 20 s). Count it, with the wait from the later arrival.
+      const slack = ETA_SLACK + ETA_SLACK_FACTOR * eta;
+      if (w === 0) {
+        const late = forecast.expectedWait(lc, eta + slack);
+        if (late > 0) w = late + slack;
+      }
+      wait += w;
     }
     return wait;
   };
@@ -578,7 +597,7 @@ export class TrafficSystem {
         const reserved =
           lightAllows &&
           (vehicle.reservation === next.id ||
-            (offset < this.requestDistance(vehicle) &&
+            (offset < (decides ? this.requestDistanceOn(vehicle, seg) : this.requestDistance(vehicle)) &&
               (responding ? this.tryReserveForEmergency(vehicle, next) : this.tryReserve(vehicle, next))));
         if (responding && reserved && this.signals.lightFor(seg.id) !== 'green' && this.signals.lightFor(seg.id) !== null) {
           // Crossing against the light: slow down and go through carefully.
@@ -620,7 +639,13 @@ export class TrafficSystem {
       // can still stop in the 2.5 m before the danger zone.)
       if (isCurrent && vehicle.s > lc.stopS + 0.5) continue;
       const distance = offset + lc.stopS;
-      const stop = () => obstacle(distance - 0.3 + vehicle.driver.minGap, 0);
+      const stop = () => {
+        obstacle(distance - 0.3 + vehicle.driver.minGap, 0);
+        // Waiting at the barrier: no hold on the junction beyond it, asked for from here.
+        if (isCurrent && vehicle.reservation !== null && vehicle.reservation === vehicle.plan[0] && this.tailOnTracksAtLine(vehicle, lane, lc)) {
+          this.cancelReservation(vehicle);
+        }
+      };
       const { state } = lc.crossing;
       if (state === 'closed') {
         stop();
@@ -628,6 +653,14 @@ export class TrafficSystem {
         const canStop = vehicle.v < 2 || (vehicle.v * vehicle.v) / (2 * vehicle.driver.comfortDecel) < distance - 1;
         if (canStop) stop();
       } else if (isCurrent) {
+        // Open, but too little lane between the tracks and the stop line to wait there clear
+        // of them: only cross already cleared through the junction. A lorry that stopped at
+        // the line for a conflicting movement kept the barriers up (they come down only once
+        // the crossing is empty) while the queue behind them blocked that movement (seed 1337).
+        if (this.tailOnTracksAtLine(vehicle, lane, lc) && vehicle.reservation !== vehicle.plan[0]) {
+          stop();
+          continue;
+        }
         // Open: only cross if the queue beyond leaves room for the whole vehicle.
         for (const other of this.bySegment.get(lane.id) ?? []) {
           // Only vehicles ahead of us and past the barrier take up room beyond the tracks.
@@ -639,6 +672,28 @@ export class TrafficSystem {
         }
       }
     }
+  }
+
+  /**
+   * Waiting at the stop line of `lane`, the vehicle's tail would still be on the tracks of
+   * `lc` (and it is going on through the junction there).
+   */
+  private tailOnTracksAtLine(vehicle: Vehicle, lane: Lane, lc: LaneCrossing): boolean {
+    if (vehicle.plan.length === 0 || this.segment(vehicle.plan[0]).kind !== 'connector') return false;
+    return lane.length - STOP_LINE_MARGIN - vehicle.length < lc.endS + 0.5;
+  }
+
+  /**
+   * Distance from the stop line within which the vehicle on `lane` asks for its junction:
+   * from the barrier of an open crossing whose tracks it would still cover waiting at the line.
+   */
+  private requestDistanceOn(vehicle: Vehicle, lane: Lane): number {
+    let distance = this.requestDistance(vehicle);
+    for (const lc of this.crossings.crossingsOn(lane.id)) {
+      if (vehicle.s > lc.stopS + 0.5 || lc.crossing.state !== 'open' || !this.tailOnTracksAtLine(vehicle, lane, lc)) continue;
+      distance = Math.max(distance, lane.length - lc.stopS + 5);
+    }
+    return distance;
   }
 
   /** True when a curb stop [s - length, s] on the lane would block a level crossing. */
@@ -717,8 +772,7 @@ export class TrafficSystem {
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
     if (this.crossingStopsInJunction(vehicle, connector)) return false;
     // Do not block the junction if the exit lane is backed up.
-    const tail = this.lastInLine(connector.toLane);
-    if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
+    if (this.exitRoom(vehicle, connector.toLane) < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
 
     let holders = this.reservations.get(connector.id);
     if (!holders) this.reservations.set(connector.id, (holders = new Set()));
@@ -776,8 +830,7 @@ export class TrafficSystem {
       }
     }
     if (this.longConflict(vehicle, connector)) return false;
-    const tail = this.lastInLine(connector.toLane, vehicle);
-    if (tail && tail.s - tail.length < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
+    if (this.exitRoom(vehicle, connector.toLane, vehicle, revoke) < vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN) return false;
     if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
     if (this.crossingStopsInJunction(vehicle, connector)) return false;
@@ -1044,8 +1097,27 @@ export class TrafficSystem {
     if (this.overtakerNearStart(connector, vehicle)) return false;
     if (!this.roomBehindKerbBlocker(vehicle, connector.toLane)) return false;
     if (this.crossingStopsInJunction(vehicle, connector)) return false;
-    const tail = this.lastInLine(connector.toLane);
-    return !tail || tail.s - tail.length >= vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN;
+    return this.exitRoom(vehicle, connector.toLane) >= vehicle.length + vehicle.driver.minGap + EXIT_SPACE_MARGIN;
+  }
+
+  /**
+   * Free room at the start of `lane` for `vehicle` entering it from a junction: up to the
+   * tail of the last vehicle on it, less what the vehicles still on (or cleared for) a
+   * connector into it will take. Counting only the lane let a car follow another through
+   * the car park gate onto a short lane that the first one then filled, and stop with its
+   * tail across the gate (seed 7, DARK=2, with a match). Infinite when the lane is empty
+   * and nobody is heading into it.
+   */
+  private exitRoom(vehicle: Vehicle, lane: SegmentId, passer?: Vehicle, ignore: readonly Vehicle[] = []): number {
+    const tail = this.lastInLine(lane, passer);
+    let room = tail ? tail.s - tail.length : Infinity;
+    for (const id of this.incomingConnectors.get(lane) ?? []) {
+      for (const holder of this.reservations.get(id) ?? []) {
+        if (holder === vehicle || holder.reservation !== id || ignore.includes(holder)) continue;
+        room -= holder.length + holder.driver.minGap;
+      }
+    }
+    return room;
   }
 
   private cancelReservation(vehicle: Vehicle): void {

@@ -15,6 +15,7 @@ import { DispatchPanel } from './ui/dispatchPanel';
 import { BuildingInteraction } from './ui/interaction';
 import { BusCard } from './ui/busCard';
 import { PowerCard } from './ui/powerCard';
+import { StadiumCard, matchMessage } from './ui/stadiumCard';
 import { StationCard } from './ui/stationCard';
 import { Toast } from './ui/toast';
 import { INCIDENT_NAME, PRIORITY_LABEL } from './ui/labels';
@@ -55,6 +56,7 @@ function follow(subject: Subject | null, stopped: () => void): void {
 const busCard = new BusCard(hud, sim, (bus) => follow(bus && { kind: 'bus', bus }, () => busCard.followStopped()));
 const vehicleCard = new VehicleCard(hud, sim, { onFollow: (subject) => follow(subject, () => vehicleCard.followStopped()) });
 const powerCard = new PowerCard(hud, sim, (message, tone) => toast.show(message, tone));
+const stadiumCard = new StadiumCard(hud, sim, (message, tone) => toast.show(message, tone));
 sim.dispatcher.onDiverted = (unit, from, to) => {
   const address = (buildingId: number) => formatAddress(city, city.buildings[buildingId]);
   toast.show(`${unit.name} diverted to ${address(to.buildingId)} (${PRIORITY_LABEL[to.priority]?.toLowerCase()} priority); ${address(from.buildingId)} queued`);
@@ -64,6 +66,7 @@ const closeCards = () => {
   busCard.close();
   vehicleCard.close();
   powerCard.close();
+  stadiumCard.close();
 };
 const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera, sim, {
   onReport(type, building) {
@@ -94,6 +97,10 @@ const interaction = new BuildingInteraction(ctx.renderer.domElement, ctx.camera,
   onPowerPlant: (screen) => {
     closeCards();
     powerCard.open(screen);
+  },
+  onStadium: (screen) => {
+    closeCards();
+    stadiumCard.open(screen);
   },
   onEmptyClick: closeCards,
 });
@@ -151,6 +158,11 @@ function frame(dt: number): void {
   busCard.render();
   vehicleCard.render();
   powerCard.render();
+  stadiumCard.render();
+  for (const event of sim.match.drainEvents()) {
+    const message = matchMessage(event);
+    if (message) toast.show(message);
+  }
 }
 ctx.start(frame);
 
